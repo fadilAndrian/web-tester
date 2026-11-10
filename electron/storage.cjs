@@ -35,6 +35,8 @@ class StorageManager {
         if (!this.cache.scenarios) this.cache.scenarios = defaultData.scenarios;
         if (!this.cache.suites) this.cache.suites = defaultData.suites;
         if (!this.cache.history) this.cache.history = [];
+        if (!this.cache.users) this.cache.users = [];
+        if (!this.cache.userLogs) this.cache.userLogs = [];
       } catch (err) {
         console.error('Failed to read data file, restoring default:', err);
         this.cache = JSON.parse(JSON.stringify(defaultData));

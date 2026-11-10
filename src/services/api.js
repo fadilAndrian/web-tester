@@ -1,7 +1,26 @@
+const TOKEN_KEY = 'qa_auth_token';
+
+function getToken() {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+function setToken(token) {
+  if (typeof window !== 'undefined') {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  }
+}
+
 // Helper for HTTP requests in Web Server mode
 async function fetchJson(url, options = {}) {
+  const token = getToken();
   const headers = {
     'Accept': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     ...(options.body ? { 'Content-Type': 'application/json' } : {}),
     ...(options.headers || {})
   };
@@ -23,6 +42,126 @@ async function fetchJson(url, options = {}) {
 
 export const api = {
   isElectron: () => typeof window !== 'undefined' && Boolean(window.electronAPI),
+
+  // Token Helpers
+  getToken,
+  setToken,
+  clearToken: () => setToken(null),
+
+  // Authentication & Profile
+  login: async (credentials) => {
+    let result;
+    if (window.electronAPI?.login) {
+      result = await window.electronAPI.login(credentials);
+    } else {
+      result = await fetchJson('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify(credentials)
+      });
+    }
+    if (result && result.token) {
+      setToken(result.token);
+    }
+    return result;
+  },
+
+  register: async (userData) => {
+    let result;
+    if (window.electronAPI?.register) {
+      result = await window.electronAPI.register(userData);
+    } else {
+      result = await fetchJson('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(userData)
+      });
+    }
+    if (result && result.token) {
+      setToken(result.token);
+    }
+    return result;
+  },
+
+  getMe: async () => {
+    const token = getToken();
+    if (!token) return null;
+    if (window.electronAPI?.getMe) {
+      return await window.electronAPI.getMe(token);
+    }
+    return await fetchJson('/api/auth/me');
+  },
+
+  updateProfile: async (data) => {
+    const token = getToken();
+    if (window.electronAPI?.updateProfile) {
+      return await window.electronAPI.updateProfile(data, token);
+    }
+    return await fetchJson('/api/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  // Master User Management (Superadmin Only)
+  getUsers: async (filters = {}) => {
+    const token = getToken();
+    if (window.electronAPI?.getUsers) {
+      return await window.electronAPI.getUsers(filters, token);
+    }
+    const params = new URLSearchParams();
+    if (filters.search) params.set('search', filters.search);
+    if (filters.role) params.set('role', filters.role);
+    if (filters.status) params.set('status', filters.status);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return await fetchJson(`/api/users${qs}`);
+  },
+
+  getUser: async (id) => {
+    const token = getToken();
+    if (window.electronAPI?.getUser) {
+      return await window.electronAPI.getUser(id, token);
+    }
+    return await fetchJson(`/api/users/${id}`);
+  },
+
+  getUserLogs: async (userId) => {
+    const token = getToken();
+    if (window.electronAPI?.getUserLogs) {
+      return await window.electronAPI.getUserLogs(userId, token);
+    }
+    return await fetchJson(`/api/users/${userId}/logs`);
+  },
+
+  createUser: async (userData) => {
+    const token = getToken();
+    if (window.electronAPI?.createUser) {
+      return await window.electronAPI.createUser(userData, token);
+    }
+    return await fetchJson('/api/users', {
+      method: 'POST',
+      body: JSON.stringify(userData)
+    });
+  },
+
+  updateUser: async (id, userData) => {
+    const token = getToken();
+    if (window.electronAPI?.updateUser) {
+      return await window.electronAPI.updateUser(id, userData, token);
+    }
+    return await fetchJson(`/api/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(userData)
+    });
+  },
+
+  deleteUser: async (id) => {
+    const token = getToken();
+    if (window.electronAPI?.deleteUser) {
+      return await window.electronAPI.deleteUser(id, token);
+    }
+    return await fetchJson(`/api/users/${id}`, {
+      method: 'DELETE'
+    });
+  },
 
   // Projects CRUD
   getProjects: async () => {

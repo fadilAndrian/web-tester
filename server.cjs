@@ -5,6 +5,7 @@ const fs = require('fs');
 const db = require('./electron/db.cjs');
 const runner = require('./electron/runner.cjs');
 const storage = require('./electron/storage.cjs');
+const auth = require('./electron/auth.cjs');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -53,6 +54,252 @@ app.get(['/health', '/api/health'], (req, res) => {
     },
     version: '1.1.0'
   });
+});
+
+// ==========================================
+// Authentication & User Management Middleware
+// ==========================================
+async function authenticate(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Token autentikasi diperlukan.' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = auth.verifyToken(token);
+    if (!decoded) {
+      return res.status(401).json({ error: 'Sesi login telah kedaluwarsa atau tidak valid.' });
+    }
+    const user = await db.getUserById(decoded.id);
+    if (!user || user.status === 'inactive') {
+      return res.status(401).json({ error: 'Akun tidak ditemukan atau berstatus nonaktif.' });
+    }
+    req.user = user;
+    next();
+  } catch (err) {
+    res.status(401).json({ error: 'Verifikasi autentikasi gagal: ' + err.message });
+  }
+}
+
+async function requireSuperadmin(req, res, next) {
+  authenticate(req, res, () => {
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Akses ditolak: Hanya Superadmin yang diizinkan mengelola Master User.' });
+    }
+    next();
+  });
+}
+
+// ==========================================
+// Auth Endpoints
+// ==========================================
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email dan kata sandi wajib diisi.' });
+    }
+
+    const user = await db.getUserByEmail(email);
+    if (!user) {
+      return res.status(401).json({ error: 'Email atau kata sandi tidak cocok.' });
+    }
+
+    if (user.status === 'inactive') {
+      return res.status(403).json({ error: 'Akun Anda dinonaktifkan. Hubungi Superadministrator.' });
+    }
+
+    const isValid = auth.verifyPassword(password, user.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Email atau kata sandi tidak cocok.' });
+    }
+
+    const safeUser = auth.sanitizeUser(user);
+    const token = auth.generateToken(safeUser);
+
+    res.json({
+      token,
+      user: safeUser
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Register (Create User from Login screen)
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { name, email, password, phone } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Nama, email, dan kata sandi wajib diisi.' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Kata sandi minimal 6 karakter.' });
+    }
+
+    // Role always defaults to tester for public registration
+    const user = await db.createUser({
+      name,
+      email,
+      password,
+      role: 'tester',
+      phone: phone || '',
+      status: 'active'
+    });
+
+    const token = auth.generateToken(user);
+    res.json({
+      token,
+      user
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Get Current Logged-in User
+app.get('/api/auth/me', authenticate, async (req, res) => {
+  res.json({
+    user: auth.sanitizeUser(req.user)
+  });
+});
+
+// Update Current User's Profile
+app.put('/api/auth/profile', authenticate, async (req, res) => {
+  try {
+    const { name, email, phone, bio, currentPassword, newPassword } = req.body;
+    const updatePayload = {
+      name,
+      email,
+      phone,
+      bio
+    };
+
+    // If changing password, verify current password first
+    if (newPassword && newPassword.trim()) {
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Kata sandi saat ini wajib diisi untuk mengubah kata sandi baru.' });
+      }
+      const isCurrentValid = auth.verifyPassword(currentPassword, req.user.password_hash);
+      if (!isCurrentValid) {
+        return res.status(400).json({ error: 'Kata sandi saat ini salah.' });
+      }
+      if (newPassword.trim().length < 6) {
+        return res.status(400).json({ error: 'Kata sandi baru minimal 6 karakter.' });
+      }
+      updatePayload.password = newPassword.trim();
+    }
+
+    // Ensure users cannot self-escalate role or status via profile endpoint
+    const updated = await db.updateUser(req.user.id, updatePayload, {
+      id: req.user.id,
+      name: req.user.name
+    });
+
+    res.json({
+      user: auth.sanitizeUser(updated)
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// Master User Management (Superadmin Only)
+// ==========================================
+
+// List users with search and filter
+app.get('/api/users', requireSuperadmin, async (req, res) => {
+  try {
+    const { search, role, status } = req.query;
+    const users = await db.getUsers({ search, role, status });
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get single user detail
+app.get('/api/users/:id', requireSuperadmin, async (req, res) => {
+  try {
+    const user = await db.getUserById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'Pengguna tidak ditemukan.' });
+    }
+    const logs = await db.getUserLogs(req.params.id);
+    res.json({
+      user: auth.sanitizeUser(user),
+      logs
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get user change logs
+app.get('/api/users/:id/logs', requireSuperadmin, async (req, res) => {
+  try {
+    const logs = await db.getUserLogs(req.params.id);
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create user by Superadmin
+app.post('/api/users', requireSuperadmin, async (req, res) => {
+  try {
+    const { name, email, password, role, phone, bio, status } = req.body;
+    if (!name || !email) {
+      return res.status(400).json({ error: 'Nama dan email wajib diisi.' });
+    }
+    const created = await db.createUser(
+      {
+        name,
+        email,
+        password,
+        role: role === 'superadmin' ? 'superadmin' : 'tester',
+        phone,
+        bio,
+        status: status || 'active'
+      },
+      {
+        id: req.user.id,
+        name: req.user.name
+      }
+    );
+    res.status(201).json(created);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Update user by Superadmin
+app.put('/api/users/:id', requireSuperadmin, async (req, res) => {
+  try {
+    const updated = await db.updateUser(req.params.id, req.body, {
+      id: req.user.id,
+      name: req.user.name
+    });
+    res.json(updated);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Delete user by Superadmin
+app.delete('/api/users/:id', requireSuperadmin, async (req, res) => {
+  try {
+    await db.deleteUser(req.params.id, {
+      id: req.user.id,
+      name: req.user.name
+    });
+    res.json({ success: true, message: 'Pengguna berhasil dihapus.' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Projects CRUD
