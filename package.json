@@ -6,8 +6,13 @@
   "scripts": {
     "dev:vite": "vite",
     "dev:electron": "cross-env NODE_ENV=development electron .",
+    "dev:server": "cross-env NODE_ENV=development node server.cjs",
     "dev": "concurrently -k \"vite --port 5173\" \"cross-env NODE_ENV=development electron .\"",
+    "dev:web": "concurrently -k \"node server.cjs\" \"vite --port 5173\"",
     "build": "vite build",
+    "build:web": "cross-env VITE_APP_MODE=web vite build",
+    "serve": "cross-env NODE_ENV=production node server.cjs",
+    "start:server": "node server.cjs",
     "start": "electron ."
   },
   "keywords": [
@@ -17,6 +22,8 @@
     "electron"
   ],
   "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
     "lucide-react": "^1.70.0",
     "pg": "^8.23.1",
     "playwright-core": "^1.65.0",

@@ -1,31 +1,25 @@
-// Fallback mock data when running directly in browser without Electron
-const mockDefaultData = {
-  projects: [
-    {
-      id: "proj-health-e-iris",
-      name: "Health-E Iris (Dev Staging)",
-      description: "Aplikasi Manajemen Rumah Sakit & Pengaturan RBAC",
-      base_url: "https://dev-health-e-iris.pixelatee.com",
-      color: "#0284c7"
-    },
-    {
-      id: "proj-ecommerce",
-      name: "E-Commerce & Todo Portal",
-      description: "Pengujian Alur Frontend Checkout & TodoMVC",
-      base_url: "https://demo.playwright.dev/todomvc/#/",
-      color: "#10b981"
-    }
-  ],
-  modules: [
-    { id: "mod-auth", project_id: "proj-health-e-iris", name: "Autentikasi & Akun", sort_order: 1 },
-    { id: "mod-rbac", project_id: "proj-health-e-iris", name: "RBAC & Hak Akses", sort_order: 2 }
-  ],
-  scenarios: [],
-  suites: [],
-  history: []
-};
+// Helper for HTTP requests in Web Server mode
+async function fetchJson(url, options = {}) {
+  const headers = {
+    'Accept': 'application/json',
+    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+    ...(options.headers || {})
+  };
 
-let localCache = { ...mockDefaultData };
+  const response = await fetch(url, { ...options, headers });
+  if (!response.ok) {
+    const errorText = await response.text();
+    let errorMessage = `HTTP error ${response.status}`;
+    try {
+      const parsed = JSON.parse(errorText);
+      if (parsed.error) errorMessage = parsed.error;
+    } catch (e) {
+      if (errorText) errorMessage = errorText;
+    }
+    throw new Error(errorMessage);
+  }
+  return await response.json();
+}
 
 export const api = {
   isElectron: () => typeof window !== 'undefined' && Boolean(window.electronAPI),
@@ -33,128 +27,149 @@ export const api = {
   // Projects CRUD
   getProjects: async () => {
     if (window.electronAPI?.getProjects) return await window.electronAPI.getProjects();
-    return localCache.projects;
+    return await fetchJson('/api/projects');
   },
 
   saveProject: async (project) => {
     if (window.electronAPI?.saveProject) return await window.electronAPI.saveProject(project);
-    const idx = localCache.projects.findIndex((p) => p.id === project.id);
-    if (idx >= 0) {
-      localCache.projects[idx] = { ...project, updated_at: new Date().toISOString() };
-    } else {
-      localCache.projects.push({ ...project, id: project.id || `proj-${Date.now()}` });
-    }
-    return project;
+    return await fetchJson('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify(project)
+    });
   },
 
   deleteProject: async (id) => {
     if (window.electronAPI?.deleteProject) return await window.electronAPI.deleteProject(id);
-    localCache.projects = localCache.projects.filter((p) => p.id !== id);
-    return localCache.projects;
+    return await fetchJson(`/api/projects/${id}`, {
+      method: 'DELETE'
+    });
   },
 
   // Modules CRUD
   getModules: async (projectId) => {
     if (window.electronAPI?.getModules) return await window.electronAPI.getModules(projectId);
-    return localCache.modules.filter((m) => !projectId || m.project_id === projectId);
+    const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+    return await fetchJson(`/api/modules${qs}`);
   },
 
   saveModule: async (mod) => {
     if (window.electronAPI?.saveModule) return await window.electronAPI.saveModule(mod);
-    const idx = localCache.modules.findIndex((m) => m.id === mod.id);
-    if (idx >= 0) {
-      localCache.modules[idx] = mod;
-    } else {
-      localCache.modules.push({ ...mod, id: mod.id || `mod-${Date.now()}` });
-    }
-    return mod;
+    return await fetchJson('/api/modules', {
+      method: 'POST',
+      body: JSON.stringify(mod)
+    });
   },
 
   deleteModule: async (id) => {
     if (window.electronAPI?.deleteModule) return await window.electronAPI.deleteModule(id);
-    localCache.modules = localCache.modules.filter((m) => m.id !== id);
-    return true;
+    return await fetchJson(`/api/modules/${id}`, {
+      method: 'DELETE'
+    });
   },
 
   // Scenarios CRUD (Filtered by Project and optional Module)
   getScenarios: async (projectId, moduleId) => {
     if (window.electronAPI?.getScenarios) return await window.electronAPI.getScenarios(projectId, moduleId);
-    return localCache.scenarios.filter((s) => {
-      if (projectId && s.projectId !== projectId && s.project_id !== projectId) return false;
-      if (moduleId && s.moduleId !== moduleId && s.module_id !== moduleId) return false;
-      return true;
-    });
+    const params = new URLSearchParams();
+    if (projectId) params.set('projectId', projectId);
+    if (moduleId) params.set('moduleId', moduleId);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return await fetchJson(`/api/scenarios${qs}`);
   },
 
   saveScenario: async (scenario) => {
     if (window.electronAPI?.saveScenario) return await window.electronAPI.saveScenario(scenario);
-    const idx = localCache.scenarios.findIndex((s) => s.id === scenario.id);
-    if (idx >= 0) {
-      localCache.scenarios[idx] = { ...scenario, updatedAt: new Date().toISOString() };
-    } else {
-      localCache.scenarios.unshift({ ...scenario, id: scenario.id || `sc-${Date.now()}` });
-    }
-    return [...localCache.scenarios];
+    return await fetchJson('/api/scenarios', {
+      method: 'POST',
+      body: JSON.stringify(scenario)
+    });
   },
 
   deleteScenario: async (id) => {
     if (window.electronAPI?.deleteScenario) return await window.electronAPI.deleteScenario(id);
-    localCache.scenarios = localCache.scenarios.filter((s) => s.id !== id);
-    return [...localCache.scenarios];
+    return await fetchJson(`/api/scenarios/${id}`, {
+      method: 'DELETE'
+    });
   },
 
   // Suites CRUD
   getSuites: async (projectId) => {
     if (window.electronAPI?.getSuites) return await window.electronAPI.getSuites(projectId);
-    return localCache.suites.filter((s) => !projectId || s.projectId === projectId || s.project_id === projectId);
+    const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+    return await fetchJson(`/api/suites${qs}`);
   },
 
   saveSuite: async (suite) => {
     if (window.electronAPI?.saveSuite) return await window.electronAPI.saveSuite(suite);
-    const idx = localCache.suites.findIndex((s) => s.id === suite.id);
-    if (idx >= 0) {
-      localCache.suites[idx] = { ...suite, updatedAt: new Date().toISOString() };
-    } else {
-      localCache.suites.unshift({ ...suite, id: suite.id || `suite-${Date.now()}` });
-    }
-    return [...localCache.suites];
+    return await fetchJson('/api/suites', {
+      method: 'POST',
+      body: JSON.stringify(suite)
+    });
   },
 
   deleteSuite: async (id) => {
     if (window.electronAPI?.deleteSuite) return await window.electronAPI.deleteSuite(id);
-    localCache.suites = localCache.suites.filter((s) => s.id !== id);
-    return [...localCache.suites];
+    return await fetchJson(`/api/suites/${id}`, {
+      method: 'DELETE'
+    });
   },
 
   // History & Runs
   getHistory: async (projectId) => {
     if (window.electronAPI?.getHistory) return await window.electronAPI.getHistory(projectId);
-    return localCache.history;
+    const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+    return await fetchJson(`/api/history${qs}`);
   },
 
   runTest: async (payload) => {
     if (window.electronAPI?.runTest) return await window.electronAPI.runTest(payload);
-    console.log('Simulating test run in browser mode:', payload);
-    return { status: 'passed', message: 'Simulated web mode' };
+    return await fetchJson('/api/run-test', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   },
 
   stopTest: async () => {
     if (window.electronAPI?.stopTest) return await window.electronAPI.stopTest();
-    return { success: true };
+    return await fetchJson('/api/stop-test', {
+      method: 'POST'
+    });
   },
 
   getScreenshotData: async (filename) => {
     if (window.electronAPI?.getScreenshotData) return await window.electronAPI.getScreenshotData(filename);
-    return null;
+    return `/api/screenshots/${encodeURIComponent(filename)}`;
   },
 
   openScreenshot: async (filename) => {
     if (window.electronAPI?.openScreenshot) return await window.electronAPI.openScreenshot(filename);
-    return false;
+    window.open(`/api/screenshots/${encodeURIComponent(filename)}`, '_blank');
+    return true;
   },
 
   onTestEvent: (callback) => {
     if (window.electronAPI?.onTestEvent) return window.electronAPI.onTestEvent(callback);
-    return () => {};
+
+    // Web Server Mode: Connect via Server-Sent Events (SSE)
+    const eventSource = new EventSource('/api/test-events');
+
+    eventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload && payload.type) {
+          callback(payload.type, payload.data);
+        }
+      } catch (e) {
+        // Heartbeat or ping event
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.warn('SSE connection warning:', err);
+    };
+
+    return () => {
+      eventSource.close();
+    };
   }
 };

@@ -7,9 +7,19 @@ export default defineConfig({
     react(),
     tailwindcss()
   ],
-  base: './',
+  base: process.env.VITE_APP_MODE === 'web' ? '/' : './',
   server: {
     port: 5173,
-    strictPort: true
+    strictPort: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      },
+      '/health': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      }
+    }
   }
 });

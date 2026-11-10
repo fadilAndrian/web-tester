@@ -65,33 +65,73 @@ Aplikasi dibangun dengan antarmuka administratif khas **FilamentPHP**:
 
 ## 🚀 Cara Menjalankan
 
-1. **Clone repositori**:
+Aplikasi dapat dijalankan dalam 2 mode: **Web Server (VPS/Cloud/Docker)** atau **Desktop App (Electron)**.
+
+### Mode A: Menjalankan sebagai Web Server (VPS / Cloud / Local Server)
+
+1. **Pastikan PostgreSQL berjalan**:
    ```bash
-   git clone https://github.com/fadilAndrian/web-tester.git
-   cd web-tester
+   # Buat database jika belum ada
+   createdb qa_flow_studio
    ```
 
-2. **Install dependensi**:
+2. **Salin file environment & sesuaikan**:
    ```bash
-   npm install
+   cp .env.example .env
    ```
 
-3. **Pastikan PostgreSQL berjalan**:
+3. **Build Frontend Web & Jalankan Server**:
    ```bash
-   # Contoh pada macOS (Homebrew):
-   brew services start postgresql
+   npm run build:web
+   npm run serve
+   ```
+   Aplikasi akan melayani antarmuka web dan REST API di `http://localhost:3000` (atau port sesuai `PORT` di `.env`).
+
+4. **Pengembangan Web (Vite HMR + Backend Server)**:
+   ```bash
+   npm run dev:web
    ```
 
-4. **Jalankan Aplikasi dalam Mode Pengembangan**:
+---
+
+### Mode B: Menjalankan dengan Docker & Docker Compose (Zero-Setup)
+
+Satu perintah untuk menjalankan PostgreSQL dan QA Flow Studio Server secara terpadu:
+```bash
+docker compose up -d --build
+```
+Aplikasi langsung dapat diakses di browser pada: `http://localhost:3000`.
+
+---
+
+### Mode C: Menjalankan sebagai Desktop App (Electron)
+
+1. **Mode Pengembangan Desktop**:
    ```bash
    npm run dev
    ```
 
-5. **Build Aplikasi Production**:
+2. **Build Desktop Production**:
    ```bash
    npm run build
    npm start
    ```
+
+---
+
+## 📡 REST API & Streaming Events
+
+QA Flow Studio Server menyediakan endpoint REST dan Server-Sent Events (SSE) lengkap:
+* `GET /health` & `GET /api/health`: Healthcheck status server & koneksi database.
+* `GET /api/projects` | `POST /api/projects` | `DELETE /api/projects/:id`
+* `GET /api/modules` | `POST /api/modules` | `DELETE /api/modules/:id`
+* `GET /api/scenarios` | `POST /api/scenarios` | `DELETE /api/scenarios/:id`
+* `GET /api/suites` | `POST /api/suites` | `DELETE /api/suites/:id`
+* `GET /api/history` | `POST /api/history`
+* `POST /api/run-test`: Memulai eksekusi runner Playwright.
+* `POST /api/stop-test`: Menghentikan eksekusi pengujian aktif.
+* `GET /api/test-events`: Stream event progress uji coba secara real-time via Server-Sent Events (SSE).
+* `GET /api/screenshots/:filename`: Mengambil file bukti tangkapan layar PNG.
 
 ---
 

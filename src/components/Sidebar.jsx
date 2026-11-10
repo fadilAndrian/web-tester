@@ -148,7 +148,9 @@ export default function Sidebar({
               <span className="text-[10px] text-gray-500 dark:text-zinc-400 block">Chrome Ready</span>
             </div>
           </div>
-          <span className="text-[10px] font-mono text-gray-400 dark:text-zinc-500">Node</span>
+          <span className="text-[10px] font-mono text-gray-400 dark:text-zinc-500">
+            {typeof window !== 'undefined' && window.electronAPI ? 'Desktop' : 'Server'}
+          </span>
         </div>
       </div>
     </aside>

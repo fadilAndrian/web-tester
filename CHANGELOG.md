@@ -4,6 +4,26 @@ Semua perubahan penting pada proyek **QA Flow Studio (Web Tester)** akan didokum
 
 ---
 
+## [1.2.0] - 2026-11-10
+
+### 🚀 Ditambahkan (Added)
+- **Standalone Web Server Mode (`server.cjs`)**:
+  - Aplikasi kini dapat di-serve secara penuh pada server (Linux VPS, Cloud Hosting, atau Container) tanpa memerlukan runtime Electron.
+  - RESTful API lengkap untuk entitas `projects`, `modules`, `scenarios`, `suites`, `history`, dan `screenshots`.
+  - Endpoint real-time Server-Sent Events (SSE) di `/api/test-events` untuk streaming status eksekusi dan live log ke browser.
+  - Health check endpoint `/health` & `/api/health`.
+- **Dukungan Cloud PostgreSQL & Fleksibilitas Konfigurasi**:
+  - Dukungan variabel `DATABASE_URL` untuk koneksi instan ke cloud database (Supabase, Neon, AWS RDS, Render, Railway).
+  - Opsi SSL otomatis (`rejectUnauthorized: false`) untuk koneksi database terenkripsi.
+- **Docker & Container Deployment**:
+  - `Dockerfile` berbasis `mcr.microsoft.com/playwright` dengan headless Chromium engine teroptimasi (`--no-sandbox`, `--disable-dev-shm-usage`).
+  - `docker-compose.yml` untuk orkestrasi 1-klik yang mencakup database PostgreSQL 16 dan QA Flow Studio web server.
+  - Template konfigurasi `.env.example`.
+- **Adaptor Universal Frontend (`api.js`)**:
+  - Otomatis mendeteksi lingkungan eksekusi: menggunakan IPC jika berjalan di Desktop Electron, atau REST API + SSE jika diakses melalui web browser.
+
+---
+
 ## [1.1.0] - 2026-11-10
 
 ### 🚀 Ditambahkan (Added)

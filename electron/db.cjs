@@ -9,21 +9,43 @@ class DatabaseManager {
   }
 
   async init() {
-    const config = {
-      user: process.env.PGUSER || process.env.USER || 'konnco',
-      host: process.env.PGHOST || '127.0.0.1',
-      database: process.env.PGDATABASE || 'qa_flow_studio',
-      port: Number(process.env.PGPORT) || 5432,
-      max: 10,
-      idleTimeoutMillis: 30000
-    };
+    let config = {};
+
+    if (process.env.DATABASE_URL) {
+      config = {
+        connectionString: process.env.DATABASE_URL,
+        max: Number(process.env.PGMAX) || 10,
+        idleTimeoutMillis: 30000
+      };
+      if (
+        process.env.DATABASE_SSL === 'true' ||
+        process.env.PGSSL === 'true' ||
+        process.env.DATABASE_URL.includes('sslmode=require')
+      ) {
+        config.ssl = { rejectUnauthorized: false };
+      }
+    } else {
+      config = {
+        user: process.env.PGUSER || process.env.USER || 'konnco',
+        password: process.env.PGPASSWORD || undefined,
+        host: process.env.PGHOST || '127.0.0.1',
+        database: process.env.PGDATABASE || 'qa_flow_studio',
+        port: Number(process.env.PGPORT) || 5432,
+        max: Number(process.env.PGMAX) || 10,
+        idleTimeoutMillis: 30000
+      };
+      if (process.env.DATABASE_SSL === 'true' || process.env.PGSSL === 'true') {
+        config.ssl = { rejectUnauthorized: false };
+      }
+    }
 
     this.pool = new Pool(config);
 
     try {
       const client = await this.pool.connect();
       this.isConnected = true;
-      console.log('PostgreSQL Connected successfully to database:', config.database);
+      const dbIdentifier = config.database || (process.env.DATABASE_URL ? 'DATABASE_URL' : 'qa_flow_studio');
+      console.log('PostgreSQL Connected successfully to database:', dbIdentifier);
       client.release();
 
       await this.ensureSchema();

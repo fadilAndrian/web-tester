@@ -102,8 +102,12 @@ class TestRunner {
 
   async run({ scenarios, options = {}, onEvent }) {
     this.isAborted = false;
+    const isServerWithoutDisplay = process.platform === 'linux' && !process.env.DISPLAY;
+    const effectiveHeadless = Boolean(
+      options.headless || process.env.FORCE_HEADLESS === 'true' || isServerWithoutDisplay
+    );
+
     const {
-      headless = false,
       slowMo = 300,
       keepSession = false,
       suiteId = null,
@@ -130,26 +134,35 @@ class TestRunner {
 
     emit('run-start', {
       totalScenarios: scenarios.length,
-      headless,
+      headless: effectiveHeadless,
       slowMo
     });
 
     let browser = null;
     let sharedContext = null;
 
+    const launchArgs = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu'
+    ];
+
     try {
       // Launch browser using installed Chrome or default chromium
       try {
         browser = await chromium.launch({
           channel: 'chrome',
-          headless,
-          slowMo
+          headless: effectiveHeadless,
+          slowMo,
+          args: launchArgs
         });
       } catch (chromeErr) {
         console.warn('Could not launch Chrome via channel, trying default chromium launch:', chromeErr.message);
         browser = await chromium.launch({
-          headless,
-          slowMo
+          headless: effectiveHeadless,
+          slowMo,
+          args: launchArgs
         });
       }
 
