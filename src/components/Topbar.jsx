@@ -8,8 +8,7 @@ import {
   User,
   ShieldCheck,
   FlaskConical,
-  LogOut,
-  Users
+  LogOut
 } from 'lucide-react';
 
 export default function Topbar({
@@ -19,7 +18,6 @@ export default function Topbar({
   currentUser,
   onOpenProfile,
   onLogout,
-  onNavigateToUsers,
   onToggleTheme,
   onNewAction,
   onBackToList
@@ -220,30 +218,6 @@ export default function Topbar({
                       </span>
                     </div>
                   </button>
-
-                  {/* Superadmin Quick Master User Menu Item */}
-                  {isSuperadmin && onNavigateToUsers && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsDropdownOpen(false);
-                        onNavigateToUsers();
-                      }}
-                      className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-700 dark:text-zinc-200 transition-colors group"
-                    >
-                      <div className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-zinc-800 group-hover:bg-amber-500/10 text-gray-500 group-hover:text-amber-600 dark:group-hover:text-amber-400 flex items-center justify-center transition-colors">
-                        <Users className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="min-w-0">
-                        <span className="text-xs font-bold text-gray-900 dark:text-white block leading-tight">
-                          Master User
-                        </span>
-                        <span className="text-[10px] text-gray-400 dark:text-zinc-500 block">
-                          Manajemen pengguna & audit log
-                        </span>
-                      </div>
-                    </button>
-                  )}
                 </div>
 
                 <div className="my-1.5 border-t border-gray-100 dark:border-zinc-800" />

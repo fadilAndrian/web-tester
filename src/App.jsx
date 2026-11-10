@@ -461,10 +461,6 @@ export default function App() {
           currentUser={currentUser}
           onOpenProfile={() => setIsProfileModalOpen(true)}
           onLogout={handleLogout}
-          onNavigateToUsers={() => {
-            setActiveTab('users');
-            setViewMode('list');
-          }}
           onToggleTheme={toggleTheme}
           onNewAction={handleTopAction}
           onBackToList={() => setViewMode('list')}
