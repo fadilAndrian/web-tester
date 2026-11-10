@@ -1,0 +1,35 @@
+{
+  "name": "qa-desktop-app",
+  "version": "1.0.0",
+  "description": "Desktop Web Test Automation Runner & Orchestrator",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev:vite": "vite",
+    "dev:electron": "cross-env NODE_ENV=development electron .",
+    "dev": "concurrently -k \"vite --port 5173\" \"cross-env NODE_ENV=development electron .\"",
+    "build": "vite build",
+    "start": "electron ."
+  },
+  "keywords": [
+    "qa",
+    "automation",
+    "playwright",
+    "electron"
+  ],
+  "dependencies": {
+    "lucide-react": "^1.70.0",
+    "pg": "^8.23.1",
+    "playwright-core": "^1.65.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@vitejs/plugin-react": "^6.3.0",
+    "concurrently": "^10.0.7",
+    "cross-env": "^10.1.0",
+    "electron": "^45.2.3",
+    "tailwindcss": "^4.3.5",
+    "vite": "^8.3.6"
+  }
+}
