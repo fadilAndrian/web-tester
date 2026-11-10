@@ -302,13 +302,21 @@ async function startServer() {
     console.error('Warning: Database failed to initialize at boot:', e.message);
   }
 
-  app.listen(PORT, HOST, () => {
+  const server = app.listen(PORT, HOST, () => {
     console.log(`=======================================================`);
     console.log(`🚀 QA Flow Studio Server is running!`);
     console.log(`   URL: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     console.log(`   Environment: ${process.env.NODE_ENV || 'production'}`);
     console.log(`   PostgreSQL: ${db.isConnected ? 'Connected' : 'Offline / Retrying'}`);
     console.log(`=======================================================`);
+  });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[Server] Port ${PORT} already in use. Server is likely already running.`);
+    } else {
+      console.error('[Server] Server error:', err);
+    }
   });
 }
 
