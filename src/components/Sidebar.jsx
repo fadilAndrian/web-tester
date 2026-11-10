@@ -10,10 +10,7 @@ import {
   Command,
   Play,
   FolderKanban,
-  Users,
-  LogOut,
-  User,
-  ShieldCheck
+  Users
 } from 'lucide-react';
 
 export default function Sidebar({
@@ -26,8 +23,6 @@ export default function Sidebar({
   historyCount = 0,
   userCount = 0,
   currentUser,
-  onOpenProfile,
-  onLogout,
   onNewScenario,
   onNewSuite
 }) {
@@ -184,50 +179,9 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Sidebar Footer: Logged In User Card & Engine Status */}
-      <div className="p-3 border-t border-gray-200 dark:border-zinc-800 space-y-2">
-        {currentUser && (
-          <div className="p-2.5 rounded-xl border border-gray-200 dark:border-zinc-800 bg-gray-50/70 dark:bg-zinc-950/70">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-2xs ${
-                    currentUser.role === 'superadmin' ? 'bg-amber-500' : 'bg-blue-600'
-                  }`}
-                >
-                  {currentUser.name ? currentUser.name.slice(0, 2).toUpperCase() : 'ME'}
-                </div>
-                <div className="min-w-0">
-                  <span className="text-xs font-bold text-gray-950 dark:text-white truncate block leading-tight">
-                    {currentUser.name}
-                  </span>
-                  <span className="text-[10px] text-gray-400 dark:text-zinc-500 truncate block mt-0.5">
-                    {currentUser.role === 'superadmin' ? 'Superadmin' : 'Tester'}
-                  </span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={onLogout}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors shrink-0"
-                title="Keluar (Logout)"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={onOpenProfile}
-              className="w-full py-1.5 px-2 rounded-lg text-[11px] font-semibold text-gray-700 dark:text-zinc-300 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 hover:text-amber-600 dark:hover:text-amber-400 hover:border-amber-500/40 transition-all text-center block shadow-2xs"
-            >
-              Lihat & Ubah Profil
-            </button>
-          </div>
-        )}
-
-        <div className="px-3 py-2 rounded-lg bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 flex items-center justify-between">
+      {/* Sidebar Footer: Engine Status */}
+      <div className="p-3 border-t border-gray-200 dark:border-zinc-800">
+        <div className="px-3 py-2.5 rounded-lg bg-gray-50 dark:bg-zinc-950 border border-gray-200 dark:border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
             <div>
