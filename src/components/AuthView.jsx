@@ -84,9 +84,6 @@ export default function AuthView({ onLoginSuccess }) {
             <h2 className="text-base font-bold text-gray-900 dark:text-white">
               Masuk ke Akun Anda
             </h2>
-            <p className="text-xs text-gray-500 dark:text-zinc-400 mt-0.5">
-              Gunakan kredensial yang telah didaftarkan oleh Superadministrator.
-            </p>
           </div>
 
           {/* Error Alert */}
@@ -110,7 +107,7 @@ export default function AuthView({ onLoginSuccess }) {
                   required
                   value={formData.email}
                   onChange={(e) => handleChange('email', e.target.value)}
-                  placeholder="admin@konnco.com"
+                  placeholder="Email"
                   className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-gray-200 dark:border-zinc-700 bg-gray-50/50 dark:bg-zinc-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition-all"
                 />
               </div>
@@ -159,43 +156,6 @@ export default function AuthView({ onLoginSuccess }) {
               )}
             </button>
           </form>
-
-          {/* Centralized Registration Notice */}
-          <div className="mt-5 p-2.5 rounded-xl bg-gray-50 dark:bg-zinc-800/60 border border-gray-200/60 dark:border-zinc-700/60 flex items-start gap-2 text-[11px] text-gray-600 dark:text-zinc-400 leading-snug">
-            <Info className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-            <span>
-              Pendaftaran akun baru dikelola secara terpusat oleh <strong>Superadministrator</strong> melalui menu <strong>Master User</strong>.
-            </span>
-          </div>
-
-          {/* Quick Demo Login Credentials */}
-          <div className="mt-5 pt-4 border-t border-gray-100 dark:border-zinc-800 text-center">
-            <span className="text-[10px] uppercase font-bold text-gray-400 dark:text-zinc-500 tracking-wider block mb-2.5">
-              Akun Percobaan (1-Klik Demo)
-            </span>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('admin@konnco.com', 'password')}
-                className="flex items-center justify-center gap-1.5 p-2 rounded-lg border border-amber-200/80 dark:border-amber-800/40 bg-amber-50/50 dark:bg-amber-500/10 hover:bg-amber-100/70 dark:hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 text-[11px] font-semibold transition-all group"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-600 group-hover:scale-110 transition-transform" />
-                <span>Superadmin</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('tester@qa.local', 'tester123')}
-                className="flex items-center justify-center gap-1.5 p-2 rounded-lg border border-blue-200/80 dark:border-blue-800/40 bg-blue-50/50 dark:bg-blue-500/10 hover:bg-blue-100/70 dark:hover:bg-blue-500/20 text-blue-800 dark:text-blue-300 text-[11px] font-semibold transition-all group"
-              >
-                <FlaskConical className="w-3.5 h-3.5 text-blue-600 group-hover:scale-110 transition-transform" />
-                <span>Tester</span>
-              </button>
-            </div>
-            <p className="text-[10px] text-gray-400 dark:text-zinc-500 mt-2">
-              Superadmin: <code className="text-gray-600 dark:text-zinc-400">admin@konnco.com</code> / <code className="text-gray-600 dark:text-zinc-400">password</code>
-            </p>
-          </div>
         </div>
 
         {/* Footer info */}

@@ -435,7 +435,13 @@ app.post('/api/run-test', async (req, res) => {
     // Run test asynchronously
     const runPromise = runner.run({
       scenarios,
-      options,
+      options: {
+        ...options,
+        // In web server mode, default to headless unless explicitly requested
+        headless: options.headless !== undefined ? Boolean(options.headless) : true,
+        isRemoteRequest: true,
+        clientIp: req.ip || req.socket?.remoteAddress
+      },
       onEvent: async (type, data) => {
         if (type === 'run-finish') {
           try {

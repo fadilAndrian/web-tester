@@ -33,7 +33,15 @@ async function fetchJson(url, options = {}) {
       const parsed = JSON.parse(errorText);
       if (parsed.error) errorMessage = parsed.error;
     } catch (e) {
-      if (errorText) errorMessage = errorText;
+      if (errorText) {
+        const match = errorText.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i);
+        if (match && match[1]) {
+          errorMessage = match[1].trim();
+        } else {
+          const stripped = errorText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          if (stripped) errorMessage = stripped;
+        }
+      }
     }
     throw new Error(errorMessage);
   }

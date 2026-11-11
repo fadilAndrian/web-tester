@@ -8,8 +8,11 @@ import {
   User,
   ShieldCheck,
   FlaskConical,
-  LogOut
+  LogOut,
+  Monitor,
+  Globe
 } from 'lucide-react';
+import { api } from '../services/api';
 
 export default function Topbar({
   activeTab,
@@ -75,6 +78,7 @@ export default function Topbar({
 
   const breadcrumbs = getBreadcrumbs();
   const isSuperadmin = currentUser?.role === 'superadmin';
+  const isElectron = api.isElectron();
 
   return (
     <header className="h-16 px-6 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800 flex items-center justify-between select-none transition-colors duration-150 shrink-0 relative z-30">
@@ -100,6 +104,32 @@ export default function Topbar({
 
       {/* Right Controls */}
       <div className="flex items-center gap-3">
+        {/* Environment Mode Badge */}
+        <div
+          className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border ${
+            isElectron
+              ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20'
+              : 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/20'
+          }`}
+          title={
+            isElectron
+              ? 'Aplikasi berjalan sebagai Desktop App. Browser pengujian dibuka di layar ini.'
+              : 'Aplikasi berjalan via Web Browser. Pengujian dieksekusi di server host.'
+          }
+        >
+          {isElectron ? (
+            <>
+              <Monitor className="w-3 h-3" />
+              <span>Desktop App</span>
+            </>
+          ) : (
+            <>
+              <Globe className="w-3 h-3" />
+              <span>Web Client</span>
+            </>
+          )}
+        </div>
+
         {/* Filament Theme Switcher (Dark / Light) */}
         <button
           type="button"
