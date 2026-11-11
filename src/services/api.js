@@ -294,6 +294,41 @@ export const api = {
     return true;
   },
 
+  // Visual Web Recorder
+  startRecorder: async (payload) => {
+    if (window.electronAPI?.startRecorder) return await window.electronAPI.startRecorder(payload);
+    return await fetchJson('/api/recorder/start', {
+      method: 'POST',
+      body: JSON.stringify(payload || {})
+    });
+  },
+
+  stopRecorder: async () => {
+    if (window.electronAPI?.stopRecorder) return await window.electronAPI.stopRecorder();
+    return await fetchJson('/api/recorder/stop', {
+      method: 'POST'
+    });
+  },
+
+  getRecorderStatus: async () => {
+    if (window.electronAPI?.getRecorderStatus) return await window.electronAPI.getRecorderStatus();
+    return await fetchJson('/api/recorder/status');
+  },
+
+  onRecorderStep: (callback) => {
+    if (window.electronAPI?.onRecorderStep) return window.electronAPI.onRecorderStep(callback);
+
+    return api.onTestEvent((type, data) => {
+      if (type === 'recorder-step') {
+        callback(data);
+      } else if (type === 'step-recorded') {
+        callback({ step: data, isUpdate: false });
+      } else if (type === 'step-updated') {
+        callback({ step: data, isUpdate: true });
+      }
+    });
+  },
+
   onTestEvent: (callback) => {
     if (window.electronAPI?.onTestEvent) return window.electronAPI.onTestEvent(callback);
 
