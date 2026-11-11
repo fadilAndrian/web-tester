@@ -447,15 +447,13 @@ export default function App() {
         historyCount={history.length}
         userCount={userCount}
         currentUser={currentUser}
-        onOpenProfile={() => setIsProfileModalOpen(true)}
-        onLogout={handleLogout}
         onNewScenario={handleNewScenario}
         onNewSuite={handleNewSuite}
       />
 
       {/* Main Surface Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Filament Topbar */}
+        {/* Filament Topbar with Top-Right Profile & Logout Dropdown */}
         <Topbar
           activeTab={activeTab}
           viewMode={viewMode}
@@ -463,6 +461,10 @@ export default function App() {
           currentUser={currentUser}
           onOpenProfile={() => setIsProfileModalOpen(true)}
           onLogout={handleLogout}
+          onNavigateToUsers={() => {
+            setActiveTab('users');
+            setViewMode('list');
+          }}
           onToggleTheme={toggleTheme}
           onNewAction={handleTopAction}
           onBackToList={() => setViewMode('list')}
