@@ -9,11 +9,33 @@ import LiveRunnerModal from './components/LiveRunnerModal';
 import ImageViewerModal from './components/ImageViewerModal';
 import TargetHistoryModal from './components/TargetHistoryModal';
 import ProjectModal from './components/ProjectModal';
+import AuthView from './components/AuthView';
+import UserManagementView from './components/UserManagementView';
+import ProfileModal from './components/ProfileModal';
+import Toast from './components/Toast';
 import { api } from './services/api';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('scenarios'); // 'scenarios' | 'suites' | 'history'
+  const [activeTab, setActiveTab] = useState('scenarios'); // 'scenarios' | 'suites' | 'users'
   const [viewMode, setViewMode] = useState('list'); // 'list' | 'edit-scenario' | 'edit-suite'
+
+  // Authentication State
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [userCount, setUserCount] = useState(0);
+
+  // App-level Toast State
+  const [appToast, setAppToast] = useState({
+    show: false,
+    type: 'success',
+    title: '',
+    message: ''
+  });
+
+  const showAppToast = (type, title, message) => {
+    setAppToast({ show: true, type, title, message });
+  };
 
   // Multi-Project & Module State
   const [projects, setProjects] = useState([]);
@@ -110,9 +132,74 @@ export default function App() {
     }
   }, [activeProjectId]);
 
-  useEffect(() => {
-    loadData();
+  // Load user count for Superadmin
+  const loadUserCount = useCallback(async () => {
+    try {
+      const uList = await api.getUsers();
+      if (Array.isArray(uList)) {
+        setUserCount(uList.length);
+      }
+    } catch (e) {
+      // not superadmin or offline
+    }
   }, []);
+
+  // Check auth on boot
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const token = api.getToken();
+        if (token) {
+          const res = await api.getMe();
+          if (res && res.user) {
+            setCurrentUser(res.user);
+            await loadData();
+            if (res.user.role === 'superadmin') {
+              loadUserCount();
+            }
+          } else {
+            api.clearToken();
+            setCurrentUser(null);
+          }
+        } else {
+          setCurrentUser(null);
+        }
+      } catch (err) {
+        console.warn('Auth check warning:', err.message);
+        api.clearToken();
+        setCurrentUser(null);
+      } finally {
+        setIsAuthChecking(false);
+      }
+    };
+    checkAuth();
+  }, [loadData, loadUserCount]);
+
+  const handleLoginSuccess = async (user) => {
+    setCurrentUser(user);
+    await loadData();
+    if (user.role === 'superadmin') {
+      await loadUserCount();
+    }
+    showAppToast(
+      'success',
+      'Selamat Datang',
+      `Login berhasil sebagai ${user.name} (${user.role === 'superadmin' ? 'Superadmin' : 'Tester'}).`
+    );
+  };
+
+  const handleLogout = () => {
+    api.clearToken();
+    setCurrentUser(null);
+    setActiveTab('scenarios');
+    setViewMode('list');
+    showAppToast('info', 'Sampai Jumpa', 'Anda telah berhasil keluar dari akun.');
+  };
+
+  const handleProfileUpdated = (updatedUser) => {
+    setCurrentUser(updatedUser);
+    showAppToast('success', 'Profil Diperbarui', 'Data profil Anda telah berhasil diperbarui dan dicatat di log.');
+  };
 
   const activeProject = projects.find((p) => p.id === activeProjectId) || projects[0] || null;
 
@@ -327,6 +414,23 @@ export default function App() {
     else if (activeTab === 'suites') handleNewSuite();
   };
 
+  // Auth Loading Screen
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-zinc-950 flex flex-col items-center justify-center p-6 select-none transition-colors duration-150">
+        <div className="w-10 h-10 border-3 border-amber-500 border-t-transparent rounded-full animate-spin mb-3.5" />
+        <span className="text-xs font-semibold text-gray-600 dark:text-zinc-400">
+          Memuat sesi QA Flow Studio...
+        </span>
+      </div>
+    );
+  }
+
+  // Not Logged In -> Show Auth View (Login / Register)
+  if (!currentUser) {
+    return <AuthView onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-gray-50 dark:bg-zinc-950 text-gray-900 dark:text-zinc-100 font-sans select-none antialiased">
       {/* Filament Left Sidebar */}
@@ -341,6 +445,10 @@ export default function App() {
         scenarioCount={scenarios.length}
         suiteCount={suites.length}
         historyCount={history.length}
+        userCount={userCount}
+        currentUser={currentUser}
+        onOpenProfile={() => setIsProfileModalOpen(true)}
+        onLogout={handleLogout}
         onNewScenario={handleNewScenario}
         onNewSuite={handleNewSuite}
       />
@@ -352,6 +460,9 @@ export default function App() {
           activeTab={activeTab}
           viewMode={viewMode}
           isDark={isDark}
+          currentUser={currentUser}
+          onOpenProfile={() => setIsProfileModalOpen(true)}
+          onLogout={handleLogout}
           onToggleTheme={toggleTheme}
           onNewAction={handleTopAction}
           onBackToList={() => setViewMode('list')}
@@ -415,6 +526,10 @@ export default function App() {
                   onViewHistory={handleViewSuiteHistory}
                 />
               )}
+
+              {activeTab === 'users' && currentUser?.role === 'superadmin' && (
+                <UserManagementView currentUser={currentUser} />
+              )}
             </>
           )}
         </main>
@@ -462,6 +577,23 @@ export default function App() {
         onSelectProject={handleSelectProject}
         onSaveProject={handleSaveProject}
         onDeleteProject={handleDeleteProject}
+      />
+
+      {/* User Profile Modal */}
+      <ProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        currentUser={currentUser}
+        onProfileUpdated={handleProfileUpdated}
+      />
+
+      {/* App Toast Feedback */}
+      <Toast
+        show={appToast.show}
+        type={appToast.type}
+        title={appToast.title}
+        message={appToast.message}
+        onClose={() => setAppToast((prev) => ({ ...prev, show: false }))}
       />
     </div>
   );

@@ -1,10 +1,13 @@
 import React from 'react';
-import { Sun, Moon, Plus, ChevronRight, Search, ExternalLink } from 'lucide-react';
+import { Sun, Moon, Plus, ChevronRight, Search, ExternalLink, User, ShieldCheck, FlaskConical, LogOut } from 'lucide-react';
 
 export default function Topbar({
   activeTab,
   viewMode,
   isDark,
+  currentUser,
+  onOpenProfile,
+  onLogout,
   onToggleTheme,
   onNewAction,
   onBackToList
@@ -26,12 +29,15 @@ export default function Topbar({
       } else {
         list.push({ label: 'Test Suites', current: true });
       }
+    } else if (activeTab === 'users') {
+      list.push({ label: 'Master User & Hak Akses', current: true });
     }
 
     return list;
   };
 
   const breadcrumbs = getBreadcrumbs();
+  const isSuperadmin = currentUser?.role === 'superadmin';
 
   return (
     <header className="h-16 px-6 bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800 flex items-center justify-between select-none transition-colors duration-150 shrink-0">
@@ -56,7 +62,7 @@ export default function Topbar({
       </nav>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
         {/* Filament Theme Switcher (Dark / Light) */}
         <button
           type="button"
@@ -77,6 +83,34 @@ export default function Topbar({
             <Plus className="w-4 h-4" />
             <span>{activeTab === 'scenarios' ? 'Setup Skenario Baru' : 'Buat Suite Baru'}</span>
           </button>
+        )}
+
+        {/* Current User Pill / Profile Button */}
+        {currentUser && (
+          <div className="flex items-center pl-2 ml-1 border-l border-gray-200 dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={onOpenProfile}
+              className="flex items-center gap-2 px-2.5 py-1 rounded-lg border border-gray-200 dark:border-zinc-800 hover:border-amber-500/50 bg-gray-50/80 dark:bg-zinc-800/60 hover:bg-white dark:hover:bg-zinc-800 transition-all group"
+              title="Buka Pengaturan Profil Saya"
+            >
+              <div
+                className={`w-6 h-6 rounded-md flex items-center justify-center text-white font-bold text-[10px] shrink-0 ${
+                  isSuperadmin ? 'bg-amber-500' : 'bg-blue-600'
+                }`}
+              >
+                {currentUser.name ? currentUser.name.slice(0, 2).toUpperCase() : 'ME'}
+              </div>
+              <div className="text-left hidden sm:block">
+                <span className="text-xs font-bold text-gray-900 dark:text-white block leading-tight">
+                  {currentUser.name}
+                </span>
+                <span className="text-[9px] font-semibold text-gray-400 dark:text-zinc-500 block">
+                  {isSuperadmin ? 'Superadmin' : 'Tester'}
+                </span>
+              </div>
+            </button>
+          </div>
         )}
       </div>
     </header>

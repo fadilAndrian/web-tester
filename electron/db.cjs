@@ -1,6 +1,7 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
+const auth = require('./auth.cjs');
 
 class DatabaseManager {
   constructor() {
@@ -50,6 +51,7 @@ class DatabaseManager {
 
       await this.ensureSchema();
       await this.seedInitialData();
+      await this.seedUsers();
     } catch (err) {
       this.isConnected = false;
       console.error('PostgreSQL Connection error:', err.message);
@@ -117,6 +119,30 @@ class DatabaseManager {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL DEFAULT 'tester',
+        phone VARCHAR(50) DEFAULT '',
+        bio TEXT DEFAULT '',
+        status VARCHAR(20) DEFAULT 'active',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS user_logs (
+        id VARCHAR(50) PRIMARY KEY,
+        user_id VARCHAR(50) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        actor_id VARCHAR(50),
+        actor_name VARCHAR(255),
+        action VARCHAR(50) NOT NULL,
+        details TEXT,
+        changes JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS idx_scenarios_project ON scenarios(project_id);
       CREATE INDEX IF NOT EXISTS idx_scenarios_module ON scenarios(module_id);
       CREATE INDEX IF NOT EXISTS idx_suites_project ON suites(project_id);
@@ -124,6 +150,10 @@ class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_test_runs_status ON test_runs(status);
       CREATE INDEX IF NOT EXISTS idx_scenarios_auth ON scenarios USING gin (auth_config);
       CREATE INDEX IF NOT EXISTS idx_test_runs_results ON test_runs USING gin (scenario_results);
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+      CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+      CREATE INDEX IF NOT EXISTS idx_user_logs_user_id ON user_logs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_logs_created_at ON user_logs(created_at DESC);
     `;
     await this.pool.query(query);
   }
@@ -250,6 +280,90 @@ class DatabaseManager {
       );
     } catch (migErr) {
       console.warn('Data migration warning:', migErr.message);
+    }
+  }
+
+  async seedUsers() {
+    try {
+      const { rows } = await this.pool.query('SELECT count(*) FROM users');
+      if (parseInt(rows[0].count, 10) > 0) return;
+
+      console.log('Seeding initial Superadmin and Tester accounts into PostgreSQL...');
+      const adminPass = auth.hashPassword('admin123');
+      const testerPass = auth.hashPassword('tester123');
+      const now = new Date();
+
+      // Seed Superadmin
+      await this.pool.query(
+        `INSERT INTO users (id, name, email, password_hash, role, phone, bio, status, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          'usr-superadmin',
+          'Super Administrator',
+          'admin@qa.local',
+          adminPass,
+          'superadmin',
+          '+6281234567890',
+          'Akun Administrator Utama Sistem QA Flow Studio.',
+          'active',
+          now,
+          now
+        ]
+      );
+
+      await this.addUserLog({
+        userId: 'usr-superadmin',
+        actorId: 'usr-superadmin',
+        actorName: 'System Bootstrap',
+        action: 'CREATE',
+        details: 'Akun Super Administrator otomatis dibuat oleh sistem saat inisialisasi awal.',
+        changes: {
+          after: {
+            name: 'Super Administrator',
+            email: 'admin@qa.local',
+            role: 'superadmin',
+            status: 'active'
+          }
+        }
+      });
+
+      // Seed QA Tester
+      await this.pool.query(
+        `INSERT INTO users (id, name, email, password_hash, role, phone, bio, status, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          'usr-tester',
+          'QA Tester',
+          'tester@qa.local',
+          testerPass,
+          'tester',
+          '+6289876543210',
+          'Akun Pelaksana Pengujian Otomasi QA Flow Studio.',
+          'active',
+          now,
+          now
+        ]
+      );
+
+      await this.addUserLog({
+        userId: 'usr-tester',
+        actorId: 'usr-superadmin',
+        actorName: 'System Bootstrap',
+        action: 'CREATE',
+        details: 'Akun QA Tester otomatis dibuat oleh sistem saat inisialisasi awal.',
+        changes: {
+          after: {
+            name: 'QA Tester',
+            email: 'tester@qa.local',
+            role: 'tester',
+            status: 'active'
+          }
+        }
+      });
+
+      console.log('Default accounts seeded: admin@qa.local (admin123) & tester@qa.local (tester123)');
+    } catch (e) {
+      console.error('Error seeding default users:', e.message);
     }
   }
 
@@ -516,6 +630,279 @@ class DatabaseManager {
       run.passedScenarios || 0,
       run.failedScenarios || 0,
       JSON.stringify(run.scenarioResults || [])
+    ]);
+    return rows[0];
+  }
+
+  // ==========================================
+  // User Management & Audit Logging Methods
+  // ==========================================
+
+  async getUserByEmail(email) {
+    if (!email) return null;
+    const query = 'SELECT * FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1';
+    const { rows } = await this.pool.query(query, [email.trim()]);
+    return rows[0] || null;
+  }
+
+  async getUserById(id) {
+    if (!id) return null;
+    const query = 'SELECT * FROM users WHERE id = $1 LIMIT 1';
+    const { rows } = await this.pool.query(query, [id]);
+    return rows[0] || null;
+  }
+
+  async getUsers({ search, role, status } = {}) {
+    let query = 'SELECT id, name, email, role, phone, bio, status, created_at, updated_at FROM users WHERE 1=1';
+    const params = [];
+
+    if (search && search.trim()) {
+      params.push(`%${search.trim().toLowerCase()}%`);
+      query += ` AND (LOWER(name) LIKE $${params.length} OR LOWER(email) LIKE $${params.length} OR LOWER(phone) LIKE $${params.length})`;
+    }
+
+    if (role && role !== 'all') {
+      params.push(role);
+      query += ` AND role = $${params.length}`;
+    }
+
+    if (status && status !== 'all') {
+      params.push(status);
+      query += ` AND status = $${params.length}`;
+    }
+
+    query += ' ORDER BY created_at DESC';
+    const { rows } = await this.pool.query(query, params);
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      role: r.role,
+      phone: r.phone || '',
+      bio: r.bio || '',
+      status: r.status || 'active',
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    }));
+  }
+
+  async createUser(data, actor = {}) {
+    const existing = await this.getUserByEmail(data.email);
+    if (existing) {
+      throw new Error(`Email "${data.email}" sudah terdaftar dalam sistem.`);
+    }
+
+    const id = data.id || `usr-${Date.now()}`;
+    const role = data.role === 'superadmin' ? 'superadmin' : 'tester';
+    const password = data.password && data.password.trim() ? data.password.trim() : 'tester123';
+    const hash = auth.hashPassword(password);
+    const now = new Date();
+
+    const query = `
+      INSERT INTO users (id, name, email, password_hash, role, phone, bio, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id, name, email, role, phone, bio, status, created_at, updated_at;
+    `;
+    const { rows } = await this.pool.query(query, [
+      id,
+      data.name.trim(),
+      data.email.trim().toLowerCase(),
+      hash,
+      role,
+      data.phone || '',
+      data.bio || '',
+      data.status || 'active',
+      now,
+      now
+    ]);
+
+    const created = rows[0];
+
+    // Record audit log
+    await this.addUserLog({
+      userId: created.id,
+      actorId: actor.id || created.id,
+      actorName: actor.name || created.name,
+      action: actor.id && actor.id !== created.id ? 'CREATE' : 'REGISTER',
+      details: actor.id && actor.id !== created.id
+        ? `Pengguna dibuat oleh ${actor.name} dengan role ${role}.`
+        : `Pengguna mendaftar secara mandiri sebagai role ${role}.`,
+      changes: {
+        after: {
+          name: created.name,
+          email: created.email,
+          role: created.role,
+          phone: created.phone,
+          status: created.status
+        }
+      }
+    });
+
+    return {
+      id: created.id,
+      name: created.name,
+      email: created.email,
+      role: created.role,
+      phone: created.phone,
+      bio: created.bio,
+      status: created.status,
+      createdAt: created.created_at,
+      updatedAt: created.updated_at
+    };
+  }
+
+  async updateUser(id, data, actor = {}) {
+    const current = await this.getUserById(id);
+    if (!current) {
+      throw new Error(`Pengguna dengan ID ${id} tidak ditemukan.`);
+    }
+
+    // Check email uniqueness if email changed
+    if (data.email && data.email.trim().toLowerCase() !== current.email.toLowerCase()) {
+      const existingWithEmail = await this.getUserByEmail(data.email);
+      if (existingWithEmail && existingWithEmail.id !== id) {
+        throw new Error(`Email "${data.email}" sudah digunakan oleh akun lain.`);
+      }
+    }
+
+    // Guard: Prevent demoting the only active superadmin
+    if (current.role === 'superadmin' && data.role && data.role !== 'superadmin') {
+      const { rows } = await this.pool.query("SELECT count(*) FROM users WHERE role = 'superadmin' AND status = 'active'");
+      if (parseInt(rows[0].count, 10) <= 1) {
+        throw new Error('Tidak dapat mengubah role: Sistem harus memiliki minimal satu Superadmin aktif.');
+      }
+    }
+
+    const { before, after, summary } = auth.computeUserChanges(current, data);
+
+    let newHash = current.password_hash;
+    if (data.password && data.password.trim()) {
+      newHash = auth.hashPassword(data.password.trim());
+    }
+
+    const updatedName = data.name !== undefined ? data.name.trim() : current.name;
+    const updatedEmail = data.email !== undefined ? data.email.trim().toLowerCase() : current.email;
+    const updatedRole = data.role !== undefined ? data.role : current.role;
+    const updatedPhone = data.phone !== undefined ? data.phone : current.phone;
+    const updatedBio = data.bio !== undefined ? data.bio : current.bio;
+    const updatedStatus = data.status !== undefined ? data.status : current.status;
+    const now = new Date();
+
+    const query = `
+      UPDATE users
+      SET name = $1, email = $2, password_hash = $3, role = $4, phone = $5, bio = $6, status = $7, updated_at = $8
+      WHERE id = $9
+      RETURNING id, name, email, role, phone, bio, status, created_at, updated_at;
+    `;
+
+    const { rows } = await this.pool.query(query, [
+      updatedName,
+      updatedEmail,
+      newHash,
+      updatedRole,
+      updatedPhone,
+      updatedBio,
+      updatedStatus,
+      now,
+      id
+    ]);
+
+    const updated = rows[0];
+
+    // Record audit log if there are differences or password reset
+    const hasFieldChanges = Object.keys(after).length > 0;
+    const hasPasswordChange = Boolean(data.password && data.password.trim());
+
+    if (hasFieldChanges || hasPasswordChange) {
+      const isSelf = actor.id === id;
+      let action = 'UPDATE';
+      if (isSelf) {
+        action = 'PROFILE_UPDATE';
+      } else if (hasPasswordChange && !hasFieldChanges) {
+        action = 'PASSWORD_RESET';
+      }
+
+      await this.addUserLog({
+        userId: id,
+        actorId: actor.id || id,
+        actorName: actor.name || 'Pengguna',
+        action,
+        details: isSelf
+          ? `Profil diperbarui oleh pengguna sendiri: ${summary}`
+          : `Data diperbarui oleh ${actor.name || 'Superadmin'}: ${summary}`,
+        changes: { before, after }
+      });
+    }
+
+    return {
+      id: updated.id,
+      name: updated.name,
+      email: updated.email,
+      role: updated.role,
+      phone: updated.phone,
+      bio: updated.bio,
+      status: updated.status,
+      createdAt: updated.created_at,
+      updatedAt: updated.updated_at
+    };
+  }
+
+  async deleteUser(id, actor = {}) {
+    const current = await this.getUserById(id);
+    if (!current) {
+      throw new Error(`Pengguna dengan ID ${id} tidak ditemukan.`);
+    }
+
+    if (actor.id === id) {
+      throw new Error('Anda tidak dapat menghapus akun Anda sendiri.');
+    }
+
+    if (current.role === 'superadmin') {
+      const { rows } = await this.pool.query("SELECT count(*) FROM users WHERE role = 'superadmin'");
+      if (parseInt(rows[0].count, 10) <= 1) {
+        throw new Error('Tidak dapat menghapus: Minimal harus ada satu akun Superadmin dalam sistem.');
+      }
+    }
+
+    await this.pool.query('DELETE FROM users WHERE id = $1', [id]);
+    return true;
+  }
+
+  async getUserLogs(userId) {
+    const query = `
+      SELECT id, user_id, actor_id, actor_name, action, details, changes, created_at
+      FROM user_logs
+      WHERE user_id = $1
+      ORDER BY created_at DESC;
+    `;
+    const { rows } = await this.pool.query(query, [userId]);
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      actorId: r.actor_id,
+      actorName: r.actor_name,
+      action: r.action,
+      details: r.details,
+      changes: r.changes || {},
+      createdAt: r.created_at
+    }));
+  }
+
+  async addUserLog({ userId, actorId, actorName, action, details, changes = {} }) {
+    const id = `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const query = `
+      INSERT INTO user_logs (id, user_id, actor_id, actor_name, action, details, changes, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      RETURNING *;
+    `;
+    const { rows } = await this.pool.query(query, [
+      id,
+      userId,
+      actorId || null,
+      actorName || 'Sistem',
+      action || 'INFO',
+      details || '',
+      JSON.stringify(changes)
     ]);
     return rows[0];
   }

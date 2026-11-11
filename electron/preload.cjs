@@ -31,6 +31,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openScreenshot: (filename) => ipcRenderer.invoke('open-screenshot', filename),
   restartApp: () => ipcRenderer.invoke('restart-app'),
 
+  // Authentication & Profile
+  login: (creds) => ipcRenderer.invoke('auth-login', creds),
+  register: (data) => ipcRenderer.invoke('auth-register', data),
+  getMe: (token) => ipcRenderer.invoke('auth-me', token),
+  updateProfile: (data, token) => ipcRenderer.invoke('auth-profile', data, token),
+
+  // Master User Management (Superadmin)
+  getUsers: (filters, token) => ipcRenderer.invoke('get-users', filters, token),
+  getUser: (id, token) => ipcRenderer.invoke('get-user', id, token),
+  getUserLogs: (userId, token) => ipcRenderer.invoke('get-user-logs', userId, token),
+  createUser: (data, token) => ipcRenderer.invoke('create-user', data, token),
+  updateUser: (id, data, token) => ipcRenderer.invoke('update-user', id, data, token),
+  deleteUser: (id, token) => ipcRenderer.invoke('delete-user', id, token),
+
   // Live Event listeners
   onTestEvent: (callback) => {
     const handler = (event, { type, data }) => callback(type, data);
