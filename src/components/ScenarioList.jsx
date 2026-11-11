@@ -14,7 +14,8 @@ import {
   FlaskConical,
   History,
   FolderKanban,
-  Plus
+  Plus,
+  Boxes
 } from 'lucide-react';
 import StatsOverview from './StatsOverview';
 
@@ -213,8 +214,16 @@ export default function ScenarioList({
                     >
                       {/* Name & Desc */}
                       <td className="px-5 py-3.5">
-                        <div className="font-semibold text-gray-900 dark:text-white">
-                          {scenario.name}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-gray-900 dark:text-white">
+                            {scenario.name}
+                          </span>
+                          {(scenario.isComponent || (Array.isArray(scenario.tags) && scenario.tags.includes('component'))) && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-md text-[10px] font-bold bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
+                              <Boxes className="w-2.5 h-2.5 text-violet-500" />
+                              Komponen
+                            </span>
+                          )}
                         </div>
                         {scenario.description && (
                           <div className="text-[11px] text-gray-500 dark:text-zinc-400 line-clamp-1 mt-0.5">
@@ -340,9 +349,17 @@ export default function ScenarioList({
                 className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl p-5 shadow-xs flex flex-col justify-between hover:border-amber-500/40 transition-colors"
               >
                 <div>
-                  <h3 className="text-sm font-bold text-gray-950 dark:text-white truncate">
-                    {scenario.name}
-                  </h3>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-bold text-gray-950 dark:text-white truncate">
+                      {scenario.name}
+                    </h3>
+                    {(scenario.isComponent || (Array.isArray(scenario.tags) && scenario.tags.includes('component'))) && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-md text-[9px] font-bold bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 shrink-0">
+                        <Boxes className="w-2.5 h-2.5 text-violet-500" />
+                        Komponen
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-gray-500 dark:text-zinc-400 line-clamp-2 min-h-[32px] mt-1 mb-3">
                     {scenario.description || 'Tidak ada deskripsi tambahan.'}
                   </p>

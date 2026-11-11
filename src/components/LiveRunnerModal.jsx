@@ -14,7 +14,8 @@ import {
   AlertTriangle,
   Monitor,
   Server,
-  Info
+  Info,
+  Boxes
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -446,6 +447,12 @@ export default function LiveRunnerModal({
                                 <span className="w-3.5 h-3.5 rounded-full border border-gray-300 dark:border-zinc-700 inline-block shrink-0"></span>
                               )}
                               <span className="truncate">{st.label || st.action}</span>
+                              {st.action === 'sub_scenario' && (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-semibold shrink-0">
+                                  <Boxes className="w-2.5 h-2.5 text-violet-500" />
+                                  Sub-Flow
+                                </span>
+                              )}
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0">

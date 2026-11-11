@@ -432,11 +432,19 @@ app.post('/api/run-test', async (req, res) => {
   try {
     const { scenarios = [], options = {} } = req.body;
 
+    let allScenarios = [];
+    try {
+      allScenarios = await db.getScenarios(options.projectId);
+    } catch (e) {
+      allScenarios = storage.getScenarios();
+    }
+
     // Run test asynchronously
     const runPromise = runner.run({
       scenarios,
       options: {
         ...options,
+        allScenarios: options.allScenarios || allScenarios,
         // In web server mode, default to headless unless explicitly requested
         headless: options.headless !== undefined ? Boolean(options.headless) : true,
         isRemoteRequest: true,

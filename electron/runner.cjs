@@ -236,6 +236,333 @@ class TestRunner {
     }
   }
 
+  async resolveScenario(scenarioId, options = {}) {
+    if (!scenarioId) return null;
+
+    if (Array.isArray(options.allScenarios)) {
+      const match = options.allScenarios.find((s) => s.id === scenarioId);
+      if (match) return match;
+    }
+    if (Array.isArray(options.scenarios)) {
+      const match = options.scenarios.find((s) => s.id === scenarioId);
+      if (match) return match;
+    }
+
+    try {
+      const s = storage.getScenarioById(scenarioId);
+      if (s) return s;
+    } catch (e) {}
+
+    try {
+      const db = require('./db.cjs');
+      if (db && typeof db.getScenarioById === 'function') {
+        const d = await db.getScenarioById(scenarioId);
+        if (d) return d;
+      }
+    } catch (e) {}
+
+    return null;
+  }
+
+  async executeStepList(page, stepsToRun, context) {
+    const { scenario, depth = 0, callStack = new Set(), options = {}, emit } = context;
+    const executedSteps = [];
+    let overallSuccess = true;
+    let overallError = null;
+
+    for (let i = 0; i < stepsToRun.length; i++) {
+      if (this.isAborted) {
+        overallSuccess = false;
+        overallError = 'Eksekusi dibatalkan oleh pengguna.';
+        break;
+      }
+
+      const step = stepsToRun[i];
+      const stepStartTime = Date.now();
+
+      emit('step-start', {
+        scenarioId: scenario.id,
+        scenarioName: scenario.name,
+        stepId: step.id,
+        stepIndex: i + 1,
+        totalSteps: stepsToRun.length,
+        label: step.label || `${step.action} ${step.selector || step.target || ''}`,
+        action: step.action,
+        depth,
+        isSubScenario: depth > 0
+      });
+
+      let stepSuccess = false;
+      let stepError = null;
+      let screenshotFile = null;
+      let matchedSelector = null;
+      let isFallbackUsed = false;
+
+      try {
+        const timeout = Number(step.timeout) || 15000;
+
+        switch (step.action) {
+          case 'sub_scenario':
+          case 'run_component': {
+            const subId = step.subScenarioId || step.targetScenarioId || step.value || step.target;
+            if (!subId) throw new Error('ID Skenario Sub-Flow belum dipilih');
+
+            if (callStack.has(subId)) {
+              throw new Error(`Terdeteksi siklus pemanggilan berulang (circular dependency): ${Array.from(callStack).join(' -> ')} -> ${subId}`);
+            }
+
+            if (depth >= 5) {
+              throw new Error('Batas kedalaman pemanggilan sub-flow terlampaui (maksimal 5 tingkat).');
+            }
+
+            const subScenario = await this.resolveScenario(subId, options);
+            if (!subScenario) {
+              throw new Error(`Sub-flow dengan ID "${subId}" tidak ditemukan.`);
+            }
+
+            const subSteps = (subScenario.steps || []).filter((s) => s.enabled !== false);
+            emit('log', {
+              level: 'info',
+              message: `📦 [Depth ${depth + 1}] Memulai Sub-Flow: "${subScenario.name}" (${subSteps.length} langkah)...`
+            });
+
+            const nextCallStack = new Set(callStack);
+            nextCallStack.add(subId);
+
+            const subRunRes = await this.executeStepList(page, subSteps, {
+              scenario: subScenario,
+              parentScenario: scenario,
+              depth: depth + 1,
+              callStack: nextCallStack,
+              options,
+              emit
+            });
+
+            if (!subRunRes.success) {
+              throw new Error(`Gagal pada Sub-Flow "${subScenario.name}": ${subRunRes.error}`);
+            }
+
+            emit('log', {
+              level: 'success',
+              message: `📦 [Depth ${depth + 1}] Sub-Flow "${subScenario.name}" selesai dieksekusi dengan sukses.`
+            });
+            break;
+          }
+
+          case 'navigate': {
+            const targetUrl = step.target || scenario.baseUrl;
+            if (!targetUrl) throw new Error('Target URL belum ditentukan');
+            await page.goto(targetUrl, { timeout, waitUntil: 'domcontentloaded' });
+            break;
+          }
+
+          case 'type': {
+            const targetRes = await findAdaptiveLocator(page, step, timeout);
+            const target = targetRes.locator;
+            matchedSelector = targetRes.matchedSelector;
+            if (targetRes.isFallback) {
+              isFallbackUsed = true;
+              emit('log', {
+                level: 'warn',
+                message: `⚡ Adaptive Fallback: Elemen input "${step.label || 'type'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
+              });
+            }
+
+            if (step.value && step.value.includes('{Enter}')) {
+              const cleanText = step.value.replace(/{Enter}/g, '');
+              await target.fill(cleanText);
+              await target.press('Enter');
+            } else {
+              await target.fill(step.value || '');
+            }
+            break;
+          }
+
+          case 'click': {
+            const clickRes = await clickElementSmartly(page, step, timeout, ({ matchedSelector: mSel, primary: pSel }) => {
+              isFallbackUsed = true;
+              matchedSelector = mSel;
+              emit('log', {
+                level: 'warn',
+                message: `⚡ Adaptive Fallback: Tombol "${step.label || 'click'}" diklik via cadangan "${mSel}" (Primer: "${pSel}")`
+              });
+            });
+            if (clickRes) {
+              matchedSelector = clickRes.matchedSelector;
+              if (clickRes.isFallback) isFallbackUsed = true;
+            }
+            break;
+          }
+
+          case 'select': {
+            const targetRes = await findAdaptiveLocator(page, step, timeout);
+            matchedSelector = targetRes.matchedSelector;
+            if (targetRes.isFallback) {
+              isFallbackUsed = true;
+              emit('log', {
+                level: 'warn',
+                message: `⚡ Adaptive Fallback: Dropdown "${step.label || 'select'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
+              });
+            }
+            await targetRes.locator.selectOption(step.value);
+            break;
+          }
+
+          case 'check': {
+            const targetRes = await findAdaptiveLocator(page, step, timeout);
+            matchedSelector = targetRes.matchedSelector;
+            if (targetRes.isFallback) {
+              isFallbackUsed = true;
+              emit('log', {
+                level: 'warn',
+                message: `⚡ Adaptive Fallback: Checkbox "${step.label || 'check'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
+              });
+            }
+            await targetRes.locator.check({ timeout });
+            break;
+          }
+
+          case 'wait': {
+            const selSpec = parseAdaptiveSelectors(step);
+            if (selSpec.all.length > 0) {
+              const targetRes = await findAdaptiveLocator(page, step, timeout);
+              matchedSelector = targetRes.matchedSelector;
+              if (targetRes.isFallback) {
+                isFallbackUsed = true;
+                emit('log', {
+                  level: 'warn',
+                  message: `⚡ Adaptive Fallback: Elemen tunggu "${step.label || 'wait'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
+                });
+              }
+            }
+            if (step.value) {
+              const ms = parseInt(step.value, 10);
+              if (!isNaN(ms) && ms > 0) {
+                await page.waitForTimeout(ms);
+              }
+            }
+            break;
+          }
+
+          case 'assert_visible': {
+            const targetRes = await findAdaptiveLocator(page, step, timeout);
+            matchedSelector = targetRes.matchedSelector;
+            if (targetRes.isFallback) {
+              isFallbackUsed = true;
+              emit('log', {
+                level: 'warn',
+                message: `⚡ Adaptive Fallback: Elemen assert_visible "${step.label || 'assert_visible'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
+              });
+            }
+            break;
+          }
+
+          case 'assert_text': {
+            const targetRes = await findAdaptiveLocator(page, step, timeout);
+            matchedSelector = targetRes.matchedSelector;
+            if (targetRes.isFallback) {
+              isFallbackUsed = true;
+              emit('log', {
+                level: 'warn',
+                message: `⚡ Adaptive Fallback: Elemen assert_text "${step.label || 'assert_text'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
+              });
+            }
+            const actualText = await targetRes.locator.innerText();
+            const expectedText = step.value || '';
+            if (!actualText || !actualText.toLowerCase().includes(expectedText.toLowerCase())) {
+              throw new Error(`Teks tidak cocok. Diharapkan mengandung: "${expectedText}", tetapi menemukan: "${actualText ? actualText.trim() : ''}"`);
+            }
+            break;
+          }
+
+          case 'assert_url': {
+            const currentUrl = page.url();
+            const expected = step.value || '';
+            if (!currentUrl.toLowerCase().includes(expected.toLowerCase())) {
+              throw new Error(`URL tidak cocok. Diharapkan mengandung: "${expected}", URL saat ini: "${currentUrl}"`);
+            }
+            break;
+          }
+
+          case 'screenshot': {
+            const cleanName = (step.value || step.label || 'screenshot').replace(/[^a-zA-Z0-9_-]/g, '_');
+            const filename = `${cleanName}-${Date.now()}.png`;
+            const filePath = path.join(storage.getScreenshotsDir(), filename);
+            await page.screenshot({ path: filePath, fullPage: true });
+            screenshotFile = filename;
+            break;
+          }
+
+          default:
+            throw new Error(`Aksi tidak dikenali: ${step.action}`);
+        }
+
+        stepSuccess = true;
+      } catch (err) {
+        stepSuccess = false;
+        stepError = err.message || String(err);
+        overallSuccess = false;
+        overallError = stepError;
+
+        try {
+          const errFilename = `error-${scenario.id}-step${i + 1}-${Date.now()}.png`;
+          const errFilePath = path.join(storage.getScreenshotsDir(), errFilename);
+          await page.screenshot({ path: errFilePath });
+          screenshotFile = errFilename;
+        } catch (snapErr) {}
+      }
+
+      const stepDuration = Date.now() - stepStartTime;
+      const stepResultItem = {
+        stepId: step.id,
+        label: step.label || step.action,
+        action: step.action,
+        status: stepSuccess ? 'passed' : 'failed',
+        durationMs: stepDuration,
+        error: stepError,
+        screenshot: screenshotFile,
+        isFallback: isFallbackUsed,
+        matchedSelector: matchedSelector,
+        depth,
+        isSubScenario: depth > 0
+      };
+
+      executedSteps.push(stepResultItem);
+
+      if (stepSuccess) {
+        emit('step-pass', {
+          scenarioId: scenario.id,
+          scenarioName: scenario.name,
+          stepId: step.id,
+          durationMs: stepDuration,
+          screenshot: screenshotFile,
+          isFallback: isFallbackUsed,
+          matchedSelector: matchedSelector,
+          depth,
+          isSubScenario: depth > 0
+        });
+      } else {
+        emit('step-fail', {
+          scenarioId: scenario.id,
+          scenarioName: scenario.name,
+          stepId: step.id,
+          durationMs: stepDuration,
+          error: stepError,
+          screenshot: screenshotFile,
+          depth,
+          isSubScenario: depth > 0
+        });
+        break;
+      }
+    }
+
+    return {
+      success: overallSuccess,
+      error: overallError,
+      steps: executedSteps
+    };
+  }
+
   async run({ scenarios, options = {}, onEvent }) {
     this.isAborted = false;
     const isServerWithoutDisplay = process.platform === 'linux' && !process.env.DISPLAY;
@@ -607,233 +934,18 @@ class TestRunner {
 
         // 2. Iterate Scenario Steps
         const stepsToRun = (scenario.steps || []).filter((s) => s.enabled !== false);
+        const stepListResult = await this.executeStepList(page, stepsToRun, {
+          scenario,
+          depth: 0,
+          callStack: new Set([scenario.id]),
+          options,
+          emit
+        });
 
-        for (let i = 0; i < stepsToRun.length; i++) {
-          if (this.isAborted) break;
-
-          const step = stepsToRun[i];
-          const stepStartTime = Date.now();
-
-          emit('step-start', {
-            scenarioId: scenario.id,
-            stepId: step.id,
-            stepIndex: i + 1,
-            totalSteps: stepsToRun.length,
-            label: step.label || `${step.action} ${step.selector || step.target || ''}`,
-            action: step.action
-          });
-
-          let stepSuccess = false;
-          let stepError = null;
-          let screenshotFile = null;
-          let matchedSelector = null;
-          let isFallbackUsed = false;
-
-          try {
-            const timeout = Number(step.timeout) || 15000;
-
-            switch (step.action) {
-              case 'navigate': {
-                const targetUrl = step.target || scenario.baseUrl;
-                if (!targetUrl) throw new Error('Target URL belum ditentukan');
-                await page.goto(targetUrl, { timeout, waitUntil: 'domcontentloaded' });
-                break;
-              }
-
-              case 'type': {
-                const targetRes = await findAdaptiveLocator(page, step, timeout);
-                const target = targetRes.locator;
-                matchedSelector = targetRes.matchedSelector;
-                if (targetRes.isFallback) {
-                  isFallbackUsed = true;
-                  emit('log', {
-                    level: 'warn',
-                    message: `⚡ Adaptive Fallback: Elemen input "${step.label || 'type'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
-                  });
-                }
-
-                // If contains {Enter}, type and submit
-                if (step.value && step.value.includes('{Enter}')) {
-                  const cleanText = step.value.replace(/{Enter}/g, '');
-                  await target.fill(cleanText);
-                  await target.press('Enter');
-                } else {
-                  await target.fill(step.value || '');
-                }
-                break;
-              }
-
-              case 'click': {
-                const clickRes = await clickElementSmartly(page, step, timeout, ({ matchedSelector: mSel, primary: pSel }) => {
-                  isFallbackUsed = true;
-                  matchedSelector = mSel;
-                  emit('log', {
-                    level: 'warn',
-                    message: `⚡ Adaptive Fallback: Tombol "${step.label || 'click'}" diklik via cadangan "${mSel}" (Primer: "${pSel}")`
-                  });
-                });
-                if (clickRes) {
-                  matchedSelector = clickRes.matchedSelector;
-                  if (clickRes.isFallback) isFallbackUsed = true;
-                }
-                break;
-              }
-
-              case 'select': {
-                const targetRes = await findAdaptiveLocator(page, step, timeout);
-                matchedSelector = targetRes.matchedSelector;
-                if (targetRes.isFallback) {
-                  isFallbackUsed = true;
-                  emit('log', {
-                    level: 'warn',
-                    message: `⚡ Adaptive Fallback: Dropdown "${step.label || 'select'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
-                  });
-                }
-                await targetRes.locator.selectOption(step.value);
-                break;
-              }
-
-              case 'check': {
-                const targetRes = await findAdaptiveLocator(page, step, timeout);
-                matchedSelector = targetRes.matchedSelector;
-                if (targetRes.isFallback) {
-                  isFallbackUsed = true;
-                  emit('log', {
-                    level: 'warn',
-                    message: `⚡ Adaptive Fallback: Checkbox "${step.label || 'check'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
-                  });
-                }
-                await targetRes.locator.check({ timeout });
-                break;
-              }
-
-              case 'wait': {
-                const selSpec = parseAdaptiveSelectors(step);
-                if (selSpec.all.length > 0) {
-                  const targetRes = await findAdaptiveLocator(page, step, timeout);
-                  matchedSelector = targetRes.matchedSelector;
-                  if (targetRes.isFallback) {
-                    isFallbackUsed = true;
-                    emit('log', {
-                      level: 'warn',
-                      message: `⚡ Adaptive Fallback: Elemen tunggu "${step.label || 'wait'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
-                    });
-                  }
-                }
-                if (step.value) {
-                  const ms = parseInt(step.value, 10);
-                  if (!isNaN(ms) && ms > 0) {
-                    await page.waitForTimeout(ms);
-                  }
-                }
-                break;
-              }
-
-              case 'assert_visible': {
-                const targetRes = await findAdaptiveLocator(page, step, timeout);
-                matchedSelector = targetRes.matchedSelector;
-                if (targetRes.isFallback) {
-                  isFallbackUsed = true;
-                  emit('log', {
-                    level: 'warn',
-                    message: `⚡ Adaptive Fallback: Elemen assert_visible "${step.label || 'assert_visible'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
-                  });
-                }
-                break;
-              }
-
-              case 'assert_text': {
-                const targetRes = await findAdaptiveLocator(page, step, timeout);
-                matchedSelector = targetRes.matchedSelector;
-                if (targetRes.isFallback) {
-                  isFallbackUsed = true;
-                  emit('log', {
-                    level: 'warn',
-                    message: `⚡ Adaptive Fallback: Elemen assert_text "${step.label || 'assert_text'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
-                  });
-                }
-                const actualText = await targetRes.locator.innerText();
-                const expectedText = step.value || '';
-                if (!actualText || !actualText.toLowerCase().includes(expectedText.toLowerCase())) {
-                  throw new Error(`Teks tidak cocok. Diharapkan mengandung: "${expectedText}", tetapi menemukan: "${actualText ? actualText.trim() : ''}"`);
-                }
-                break;
-              }
-
-              case 'assert_url': {
-                const currentUrl = page.url();
-                const expected = step.value || '';
-                if (!currentUrl.toLowerCase().includes(expected.toLowerCase())) {
-                  throw new Error(`URL tidak cocok. Diharapkan mengandung: "${expected}", URL saat ini: "${currentUrl}"`);
-                }
-                break;
-              }
-
-              case 'screenshot': {
-                const cleanName = (step.value || step.label || 'screenshot').replace(/[^a-zA-Z0-9_-]/g, '_');
-                const filename = `${cleanName}-${Date.now()}.png`;
-                const filePath = path.join(storage.getScreenshotsDir(), filename);
-                await page.screenshot({ path: filePath, fullPage: true });
-                screenshotFile = filename;
-                break;
-              }
-
-              default:
-                throw new Error(`Aksi tidak dikenali: ${step.action}`);
-            }
-
-            stepSuccess = true;
-          } catch (err) {
-            stepSuccess = false;
-            stepError = err.message || String(err);
-            scenarioFailed = true;
-
-            // Capture automatic error screenshot
-            try {
-              const errFilename = `error-${scenario.id}-step${i + 1}-${Date.now()}.png`;
-              const errFilePath = path.join(storage.getScreenshotsDir(), errFilename);
-              await page.screenshot({ path: errFilePath });
-              screenshotFile = errFilename;
-            } catch (snapErr) {
-              // ignore
-            }
-          }
-
-          const stepDuration = Date.now() - stepStartTime;
-          const stepResultItem = {
-            stepId: step.id,
-            label: step.label || step.action,
-            action: step.action,
-            status: stepSuccess ? 'passed' : 'failed',
-            durationMs: stepDuration,
-            error: stepError,
-            screenshot: screenshotFile,
-            isFallback: isFallbackUsed,
-            matchedSelector: matchedSelector
-          };
-
-          scenarioResult.steps.push(stepResultItem);
-
-          if (stepSuccess) {
-            emit('step-pass', {
-              scenarioId: scenario.id,
-              stepId: step.id,
-              durationMs: stepDuration,
-              screenshot: screenshotFile,
-              isFallback: isFallbackUsed,
-              matchedSelector: matchedSelector
-            });
-          } else {
-            emit('step-fail', {
-              scenarioId: scenario.id,
-              stepId: step.id,
-              durationMs: stepDuration,
-              error: stepError,
-              screenshot: screenshotFile
-            });
-            // Stop further steps in this scenario if one fails
-            break;
-          }
+        scenarioResult.steps = stepListResult.steps;
+        if (!stepListResult.success) {
+          scenarioFailed = true;
+          scenarioResult.error = stepListResult.error;
         }
 
         // Close page/context if not shared

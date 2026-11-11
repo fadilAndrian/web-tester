@@ -54,7 +54,13 @@ class StorageManager {
   }
 
   getScenarios() {
+    this.ensureInitialized();
     return this.cache?.scenarios || [];
+  }
+
+  getScenarioById(id) {
+    this.ensureInitialized();
+    return (this.cache?.scenarios || []).find((s) => s.id === id) || null;
   }
 
   saveScenario(scenario) {
