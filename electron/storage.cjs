@@ -117,11 +117,19 @@ class StorageManager {
     return this.cache.suites;
   }
 
+  ensureInitialized() {
+    if (!this.cache) {
+      this.init();
+    }
+  }
+
   getHistory() {
+    this.ensureInitialized();
     return this.cache?.history || [];
   }
 
   addHistory(entry) {
+    this.ensureInitialized();
     if (!this.cache.history) this.cache.history = [];
     this.cache.history.unshift(entry);
     // Keep last 50 runs
@@ -132,6 +140,9 @@ class StorageManager {
   }
 
   getScreenshotsDir() {
+    if (!this.screenshotsDir) {
+      this.init();
+    }
     return this.screenshotsDir;
   }
 }

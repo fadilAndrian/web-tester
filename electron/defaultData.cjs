@@ -30,6 +30,7 @@ module.exports = {
           label: "Pastikan Input Todo Terlihat",
           target: "",
           selector: "input.new-todo",
+          fallbacks: ["input[placeholder*='needs to be done']", ".new-todo"],
           value: "",
           timeout: 5000,
           enabled: true
@@ -40,6 +41,7 @@ module.exports = {
           label: "Ketik Todo Pertama & Tekan Enter",
           target: "",
           selector: "input.new-todo",
+          fallbacks: ["input[placeholder*='needs to be done']"],
           value: "Beli Kopi untuk Tim QA{Enter}",
           timeout: 5000,
           enabled: true

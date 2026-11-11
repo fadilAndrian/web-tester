@@ -202,6 +202,7 @@ export default function ScenarioList({
               <tbody className="divide-y divide-gray-200 dark:divide-zinc-800">
                 {filtered.map((scenario) => {
                   const enabledSteps = (scenario.steps || []).filter((s) => s.enabled !== false).length;
+                  const fallbackCount = (scenario.steps || []).reduce((acc, s) => acc + (Array.isArray(s.fallbacks) ? s.fallbacks.length : 0), 0);
                   const hasAuth = scenario.authConfig && scenario.authConfig.enabled;
                   const mod = moduleMap[scenario.moduleId || scenario.module_id];
 
@@ -244,10 +245,21 @@ export default function ScenarioList({
 
                       {/* Step count badge */}
                       <td className="px-5 py-3.5">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 border border-gray-200 dark:border-zinc-700">
-                          <ListOrdered className="w-3 h-3 text-amber-500" />
-                          {enabledSteps} langkah
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 border border-gray-200 dark:border-zinc-700">
+                            <ListOrdered className="w-3 h-3 text-amber-500" />
+                            {enabledSteps} langkah
+                          </span>
+                          {fallbackCount > 0 && (
+                            <span
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20"
+                              title={`${fallbackCount} selector cadangan terpasang`}
+                            >
+                              <Sparkles className="w-2.5 h-2.5 text-amber-500" />
+                              Adaptive
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Auth status */}
@@ -319,6 +331,7 @@ export default function ScenarioList({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((scenario) => {
             const enabledSteps = (scenario.steps || []).filter((s) => s.enabled !== false).length;
+            const fallbackCount = (scenario.steps || []).reduce((acc, s) => acc + (Array.isArray(s.fallbacks) ? s.fallbacks.length : 0), 0);
             const hasAuth = scenario.authConfig && scenario.authConfig.enabled;
 
             return (
@@ -351,6 +364,16 @@ export default function ScenarioList({
                       <ListOrdered className="w-3 h-3 text-amber-500" />
                       {enabledSteps} Langkah
                     </span>
+
+                    {fallbackCount > 0 && (
+                      <span
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20 font-medium"
+                        title={`${fallbackCount} selector cadangan terpasang`}
+                      >
+                        <Sparkles className="w-2.5 h-2.5 text-amber-500" />
+                        Adaptive
+                      </span>
+                    )}
 
                     {hasAuth && (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 font-medium">

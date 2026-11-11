@@ -211,6 +211,40 @@ const SELECTOR_CATEGORIES = [
         example: '<button aria-label="Tutup Dialog">×</button>'
       }
     ]
+  },
+  {
+    id: 'adaptive',
+    name: '⚡ Pola Adaptive Fallback (BugBug)',
+    icon: Sparkles,
+    highlight: true,
+    description: 'Pola multi-selector bertingkat (Adaptive Selector Engine) agar tes kebal terhadap perubahan styling / DOM.',
+    items: [
+      {
+        pattern: 'button[type="submit"]:visible',
+        description: 'Cadangan tombol submit formulir jika ID utama berubah.',
+        example: 'Primer: #btn-submit ➔ Cadangan 1: button:has-text("Kirim") ➔ Cadangan 2: button[type="submit"]:visible'
+      },
+      {
+        pattern: 'button:has-text("Simpan")',
+        description: 'Cadangan berbasis teks tombol yang terbaca oleh manusia.',
+        example: 'Primer: [data-testid="save-btn"] ➔ Cadangan: button:has-text("Simpan")'
+      },
+      {
+        pattern: 'input[name="email"]:visible',
+        description: 'Cadangan input berdasarkan atribut nama dan filter tampilan.',
+        example: 'Primer: #email-input ➔ Cadangan 1: input[name="email"]:visible ➔ Cadangan 2: input[type="email"]'
+      },
+      {
+        pattern: 'input[placeholder*="cari" i]',
+        description: 'Cadangan input pencarian berdasarkan placeholder case-insensitive.',
+        example: 'Primer: #search ➔ Cadangan: input[placeholder*="cari" i]'
+      },
+      {
+        pattern: '.filament-forms-field-wrapper:has-text("Kategori") .choices__inner',
+        description: 'Cadangan dropdown Filament berdasarkan teks label pembungkusnya.',
+        example: 'Primer: [wire\\:key*="kategori_id"] .choices__inner ➔ Cadangan: .filament-forms-field-wrapper:has-text("Kategori") .choices__inner'
+      }
+    ]
   }
 ];
 
