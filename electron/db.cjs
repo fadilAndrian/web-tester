@@ -285,85 +285,112 @@ class DatabaseManager {
 
   async seedUsers() {
     try {
-      const { rows } = await this.pool.query('SELECT count(*) FROM users');
-      if (parseInt(rows[0].count, 10) > 0) return;
-
-      console.log('Seeding initial Superadmin and Tester accounts into PostgreSQL...');
-      const adminPass = auth.hashPassword('admin123');
-      const testerPass = auth.hashPassword('tester123');
       const now = new Date();
+      const adminPass = auth.hashPassword('password');
 
-      // Seed Superadmin
-      await this.pool.query(
-        `INSERT INTO users (id, name, email, password_hash, role, phone, bio, status, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [
-          'usr-superadmin',
-          'Super Administrator',
-          'admin@qa.local',
-          adminPass,
-          'superadmin',
-          '+6281234567890',
-          'Akun Administrator Utama Sistem QA Flow Studio.',
-          'active',
-          now,
-          now
-        ]
-      );
+      // Check if admin@konnco.com already exists
+      const konncoAdmin = await this.getUserByEmail('admin@konnco.com');
+      if (!konncoAdmin) {
+        // If old admin@qa.local exists, migrate it to admin@konnco.com / password
+        const oldAdmin = await this.getUserByEmail('admin@qa.local');
+        if (oldAdmin) {
+          console.log('Migrating Superadmin account to admin@konnco.com with new password...');
+          await this.pool.query(
+            `UPDATE users
+             SET email = 'admin@konnco.com', password_hash = $1, updated_at = NOW()
+             WHERE id = $2`,
+            [adminPass, oldAdmin.id]
+          );
+          await this.addUserLog({
+            userId: oldAdmin.id,
+            actorId: oldAdmin.id,
+            actorName: 'System Migration',
+            action: 'UPDATE',
+            details: 'Akun Superadministrator diperbarui ke email: admin@konnco.com dengan kata sandi baru.',
+            changes: {
+              before: { email: 'admin@qa.local' },
+              after: { email: 'admin@konnco.com', password: '[DIPERBARUI]' }
+            }
+          });
+        } else {
+          // Clean insert of Superadmin
+          console.log('Creating initial Superadmin account admin@konnco.com...');
+          await this.pool.query(
+            `INSERT INTO users (id, name, email, password_hash, role, phone, bio, status, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [
+              'usr-superadmin',
+              'Super Administrator',
+              'admin@konnco.com',
+              adminPass,
+              'superadmin',
+              '+6281234567890',
+              'Akun Superadministrator Utama Konnco.',
+              'active',
+              now,
+              now
+            ]
+          );
 
-      await this.addUserLog({
-        userId: 'usr-superadmin',
-        actorId: 'usr-superadmin',
-        actorName: 'System Bootstrap',
-        action: 'CREATE',
-        details: 'Akun Super Administrator otomatis dibuat oleh sistem saat inisialisasi awal.',
-        changes: {
-          after: {
-            name: 'Super Administrator',
-            email: 'admin@qa.local',
-            role: 'superadmin',
-            status: 'active'
-          }
+          await this.addUserLog({
+            userId: 'usr-superadmin',
+            actorId: 'usr-superadmin',
+            actorName: 'System Bootstrap',
+            action: 'CREATE',
+            details: 'Akun Superadministrator awal (admin@konnco.com) diinisialisasi oleh sistem.',
+            changes: {
+              after: {
+                name: 'Super Administrator',
+                email: 'admin@konnco.com',
+                role: 'superadmin',
+                status: 'active'
+              }
+            }
+          });
         }
-      });
+      }
 
-      // Seed QA Tester
-      await this.pool.query(
-        `INSERT INTO users (id, name, email, password_hash, role, phone, bio, status, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [
-          'usr-tester',
-          'QA Tester',
-          'tester@qa.local',
-          testerPass,
-          'tester',
-          '+6289876543210',
-          'Akun Pelaksana Pengujian Otomasi QA Flow Studio.',
-          'active',
-          now,
-          now
-        ]
-      );
+      // Check if initial tester exists
+      const testerUser = await this.getUserByEmail('tester@qa.local');
+      if (!testerUser) {
+        const testerPass = auth.hashPassword('tester123');
+        await this.pool.query(
+          `INSERT INTO users (id, name, email, password_hash, role, phone, bio, status, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            'usr-tester',
+            'QA Tester',
+            'tester@qa.local',
+            testerPass,
+            'tester',
+            '+6289876543210',
+            'Akun Pelaksana Pengujian Otomasi QA Flow Studio.',
+            'active',
+            now,
+            now
+          ]
+        );
 
-      await this.addUserLog({
-        userId: 'usr-tester',
-        actorId: 'usr-superadmin',
-        actorName: 'System Bootstrap',
-        action: 'CREATE',
-        details: 'Akun QA Tester otomatis dibuat oleh sistem saat inisialisasi awal.',
-        changes: {
-          after: {
-            name: 'QA Tester',
-            email: 'tester@qa.local',
-            role: 'tester',
-            status: 'active'
+        await this.addUserLog({
+          userId: 'usr-tester',
+          actorId: 'usr-superadmin',
+          actorName: 'System Bootstrap',
+          action: 'CREATE',
+          details: 'Akun QA Tester otomatis dibuat oleh sistem saat inisialisasi awal.',
+          changes: {
+            after: {
+              name: 'QA Tester',
+              email: 'tester@qa.local',
+              role: 'tester',
+              status: 'active'
+            }
           }
-        }
-      });
+        });
+      }
 
-      console.log('Default accounts seeded: admin@qa.local (admin123) & tester@qa.local (tester123)');
+      console.log('Superadmin ready: admin@konnco.com (password: password)');
     } catch (e) {
-      console.error('Error seeding default users:', e.message);
+      console.error('Error seeding users:', e.message);
     }
   }
 

@@ -215,20 +215,8 @@ ipcMain.handle('auth-login', async (_, { email, password }) => {
   return { token, user: safeUser };
 });
 
-ipcMain.handle('auth-register', async (_, data) => {
-  const { name, email, password, phone } = data;
-  if (!name || !email || !password) throw new Error('Nama, email, dan kata sandi wajib diisi.');
-  if (password.length < 6) throw new Error('Kata sandi minimal 6 karakter.');
-  const user = await db.createUser({
-    name,
-    email,
-    password,
-    role: 'tester',
-    phone: phone || '',
-    status: 'active'
-  });
-  const token = auth.generateToken(user);
-  return { token, user };
+ipcMain.handle('auth-register', async () => {
+  throw new Error('Pendaftaran publik dinonaktifkan. Pengguna hanya dapat didaftarkan oleh Superadministrator melalui menu Master User.');
 });
 
 ipcMain.handle('auth-me', async (_, token) => {

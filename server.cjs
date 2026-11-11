@@ -128,35 +128,11 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Register (Create User from Login screen)
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const { name, email, password, phone } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Nama, email, dan kata sandi wajib diisi.' });
-    }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Kata sandi minimal 6 karakter.' });
-    }
-
-    // Role always defaults to tester for public registration
-    const user = await db.createUser({
-      name,
-      email,
-      password,
-      role: 'tester',
-      phone: phone || '',
-      status: 'active'
-    });
-
-    const token = auth.generateToken(user);
-    res.json({
-      token,
-      user
-    });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
+// Register Endpoint (Public registration disabled: users only registered by Superadmin via Master User)
+app.post('/api/auth/register', (req, res) => {
+  return res.status(403).json({
+    error: 'Pendaftaran publik dinonaktifkan. Pengguna hanya dapat didaftarkan oleh Superadministrator melalui menu Master User.'
+  });
 });
 
 // Get Current Logged-in User
