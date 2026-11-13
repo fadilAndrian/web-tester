@@ -27,7 +27,9 @@ import {
   ExternalLink,
   Sliders,
   Copy,
-  ShieldAlert
+  ShieldAlert,
+  Boxes,
+  Workflow
 } from 'lucide-react';
 import SelectorHelperModal from './SelectorHelperModal';
 import Toast from './Toast';
@@ -294,11 +296,21 @@ const ACTION_CONFIGS = {
     valuePlaceholder: 'Nama file foto, misal: bukti_form_berhasil',
     badge: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/20',
     hint: 'Menyimpan tangkapan layar penuh saat langkah ini dijalankan.'
+  },
+  sub_scenario: {
+    label: 'Jalankan Sub-Flow / Komponen (Sub-Scenario)',
+    needsSelector: false,
+    needsTarget: false,
+    needsValue: false,
+    needsSubScenario: true,
+    badge: 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-200 dark:border-violet-500/20',
+    hint: 'Memanggil seluruh rangkaian langkah dari skenario lain (seperti Alur Login, Setup Data) dalam sesi browser yang sama.'
   }
 };
 
 export default function ScenarioEditor({
   scenario,
+  allScenarios = [],
   modules = [],
   activeProjectId,
   activeModuleId,
@@ -314,6 +326,11 @@ export default function ScenarioEditor({
     name: scenario?.name || '',
     description: scenario?.description || '',
     baseUrl: scenario?.baseUrl || '',
+    isComponent: Boolean(
+      scenario?.isComponent ||
+      (Array.isArray(scenario?.tags) && scenario.tags.includes('component'))
+    ),
+    tags: Array.isArray(scenario?.tags) ? JSON.parse(JSON.stringify(scenario.tags)) : [],
     authConfig: {
       enabled: scenario?.authConfig?.enabled || false,
       usernameSelector: scenario?.authConfig?.usernameSelector || '',
@@ -348,6 +365,7 @@ export default function ScenarioEditor({
           }
           return {
             ...s,
+            subScenarioId: s.subScenarioId || (s.action === 'sub_scenario' ? (s.value || s.target || '') : ''),
             selector: primary,
             fallbacks: Array.isArray(fallbacks) ? fallbacks : []
           };
@@ -358,6 +376,7 @@ export default function ScenarioEditor({
             action: 'navigate',
             label: 'Buka Halaman Utama',
             target: '',
+            subScenarioId: '',
             selector: '',
             fallbacks: [],
             value: '',
@@ -367,6 +386,7 @@ export default function ScenarioEditor({
         ]
   });
 
+  const availableSubScenarios = (allScenarios || []).filter((s) => s.id !== formData.id);
   const [toast, setToast] = useState({ show: false, type: 'success', title: '', message: '' });
   const [helperModalTarget, setHelperModalTarget] = useState(null);
   const [copiedSnippet, setCopiedSnippet] = useState(null);
@@ -524,6 +544,7 @@ export default function ScenarioEditor({
       action: actionType,
       label: config.label.split('(')[0].trim(),
       target: actionType === 'navigate' ? formData.baseUrl : '',
+      subScenarioId: '',
       selector: '',
       fallbacks: [],
       value: '',
@@ -679,16 +700,29 @@ export default function ScenarioEditor({
 
       return {
         ...s,
+        subScenarioId: s.subScenarioId || '',
         selector: cleanPrimary,
         fallbacks: cleanFallbacks,
         target: s.action === 'navigate'
           ? (s.target || formData.baseUrl || '')
-          : { primary: cleanPrimary, fallbacks: cleanFallbacks }
+          : (s.action === 'sub_scenario'
+              ? (s.subScenarioId || '')
+              : { primary: cleanPrimary, fallbacks: cleanFallbacks })
       };
     });
 
+    const tags = Array.isArray(formData.tags) ? [...formData.tags] : [];
+    if (formData.isComponent && !tags.includes('component')) {
+      tags.push('component');
+    } else if (!formData.isComponent && tags.includes('component')) {
+      const idx = tags.indexOf('component');
+      if (idx >= 0) tags.splice(idx, 1);
+    }
+
     const payload = {
       ...formData,
+      tags,
+      isComponent: Boolean(formData.isComponent),
       id: formData.id || `sc-${Date.now()}`,
       projectId: formData.projectId || activeProjectId || 'proj-health-e-iris',
       moduleId: formData.moduleId || null,
@@ -853,6 +887,40 @@ export default function ScenarioEditor({
                   onChange={(e) => handleFieldChange('description', e.target.value)}
                   className="w-full bg-white dark:bg-zinc-950 border border-gray-300 dark:border-zinc-700 rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-colors resize-none"
                 />
+              </div>
+
+              {/* Reusable Component Toggle */}
+              <div className="pt-3 border-t border-gray-100 dark:border-zinc-800/80 flex items-center justify-between">
+                <div className="flex items-start gap-2.5">
+                  <div className="mt-0.5 p-1 rounded-md bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400">
+                    <Boxes className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="isComponentToggle"
+                      className="text-xs font-semibold text-gray-900 dark:text-white cursor-pointer select-none flex items-center gap-1.5"
+                    >
+                      <span>Jadikan Komponen Reusable (Sub-Flow)</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">
+                        Modular
+                      </span>
+                    </label>
+                    <p className="text-[11px] text-gray-500 dark:text-zinc-400">
+                      Skenario ini dapat dipanggil dan disisipkan sebagai satu langkah di dalam skenario lain tanpa duplikasi langkah.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+                  <input
+                    id="isComponentToggle"
+                    type="checkbox"
+                    checked={Boolean(formData.isComponent)}
+                    onChange={(e) => handleFieldChange('isComponent', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-zinc-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-violet-600"></div>
+                </label>
               </div>
             </div>
           </div>
@@ -1812,6 +1880,81 @@ export default function ScenarioEditor({
                     </div>
                   )}
 
+                  {config.needsSubScenario && (
+                    <div className="sm:col-span-2 lg:col-span-3 space-y-2">
+                      <label className="block text-[10px] uppercase font-semibold text-gray-500 dark:text-zinc-400 mb-1">
+                        Pilih Skenario Sub-Flow / Komponen
+                      </label>
+                      <select
+                        value={step.subScenarioId || ''}
+                        onChange={(e) => {
+                          const selectedId = e.target.value;
+                          const targetSc = availableSubScenarios.find((s) => s.id === selectedId);
+                          updateStep(step.id, 'subScenarioId', selectedId);
+                          if (targetSc && (!step.label || step.label.startsWith('Jalankan Sub-Flow') || step.label.startsWith('Sub-Flow:'))) {
+                            updateStep(step.id, 'label', `Sub-Flow: ${targetSc.name}`);
+                          }
+                        }}
+                        className="w-full bg-white dark:bg-zinc-900 border border-gray-300 dark:border-zinc-700 rounded-lg px-2.5 py-2 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 font-medium"
+                      >
+                        <option value="">-- Pilih Skenario Komponen untuk Dijalankan --</option>
+                        {availableSubScenarios.map((sc) => (
+                          <option key={sc.id} value={sc.id}>
+                            {sc.isComponent || (Array.isArray(sc.tags) && sc.tags.includes('component')) ? '🧩 ' : '📄 '}
+                            {sc.name} ({(sc.steps || []).length} langkah)
+                          </option>
+                        ))}
+                      </select>
+
+                      {/* Sub-scenario preview box if selected */}
+                      {(() => {
+                        const selectedSub = availableSubScenarios.find((s) => s.id === step.subScenarioId);
+                        if (!selectedSub) return null;
+                        const subSteps = (selectedSub.steps || []).filter((s) => s.enabled !== false);
+
+                        return (
+                          <div className="mt-2 p-3 bg-violet-50/50 dark:bg-violet-950/20 border border-violet-200/60 dark:border-violet-800/40 rounded-lg space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-semibold text-violet-900 dark:text-violet-300 flex items-center gap-1.5">
+                                <Boxes className="w-4 h-4 text-violet-500" />
+                                <span>Komponen: {selectedSub.name}</span>
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-mono font-bold">
+                                {subSteps.length} langkah
+                              </span>
+                            </div>
+
+                            {selectedSub.description && (
+                              <p className="text-[11px] text-gray-600 dark:text-zinc-400">
+                                {selectedSub.description}
+                              </p>
+                            )}
+
+                            <div className="pt-1 border-t border-violet-100 dark:border-violet-900/40 space-y-1">
+                              <span className="text-[10px] uppercase font-bold text-gray-400 dark:text-zinc-500 block">
+                                Rangkaian Langkah di Dalam Komponen:
+                              </span>
+                              <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
+                                {subSteps.map((st, idx) => (
+                                  <div
+                                    key={st.id || idx}
+                                    className="flex items-center gap-2 text-[11px] text-gray-700 dark:text-zinc-300 bg-white/70 dark:bg-zinc-900/70 px-2 py-1 rounded border border-violet-100/60 dark:border-violet-900/30 font-mono"
+                                  >
+                                    <span className="text-[10px] text-violet-500 font-bold shrink-0">#{idx + 1}</span>
+                                    <span className="px-1 py-0.2 rounded bg-gray-100 dark:bg-zinc-800 text-[9px] uppercase text-gray-600 dark:text-zinc-400 shrink-0">
+                                      {st.action}
+                                    </span>
+                                    <span className="truncate">{st.label || st.selector || st.target || ''}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
                   {config.needsValue && (
                     <div className={config.needsSelector ? 'sm:col-span-1' : 'sm:col-span-2 lg:col-span-3'}>
                       <label className="block text-[10px] uppercase font-semibold text-gray-500 dark:text-zinc-400 mb-1">
@@ -1837,15 +1980,24 @@ export default function ScenarioEditor({
           })}
         </div>
 
-        {/* Add Step Button */}
-        <div className="pt-2">
+        {/* Add Step Buttons */}
+        <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button
             type="button"
             onClick={() => addStep('type')}
-            className="w-full py-2.5 border-2 border-dashed border-gray-300 dark:border-zinc-700 hover:border-amber-500/60 rounded-xl text-gray-600 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-500/5 text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+            className="py-2.5 border-2 border-dashed border-gray-300 dark:border-zinc-700 hover:border-amber-500/60 rounded-xl text-gray-600 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-500/5 text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
           >
             <Plus className="w-4 h-4" />
-            Tambah Langkah Baru
+            <span>Tambah Langkah Interaksi</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => addStep('sub_scenario')}
+            className="py-2.5 border-2 border-dashed border-violet-300 dark:border-violet-800/80 hover:border-violet-500 rounded-xl text-violet-700 dark:text-violet-400 hover:bg-violet-500/5 text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+          >
+            <Boxes className="w-4 h-4" />
+            <span>Sisipkan Sub-Flow / Komponen</span>
           </button>
         </div>
       </div>

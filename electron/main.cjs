@@ -135,10 +135,19 @@ ipcMain.handle('run-test', async (_, payload) => {
   } catch (e) {}
   const activeRunner = require('./runner.cjs');
 
-  const { scenarios, options } = payload;
+  const { scenarios, options = {} } = payload;
+  let allScenarios = options.allScenarios;
+  if (!allScenarios) {
+    try {
+      allScenarios = await db.getScenarios(options.projectId);
+    } catch (e) {
+      allScenarios = storage.getScenarios();
+    }
+  }
+
   return activeRunner.run({
     scenarios,
-    options,
+    options: { ...options, allScenarios },
     onEvent: async (type, data) => {
       if (type === 'run-finish') {
         try {

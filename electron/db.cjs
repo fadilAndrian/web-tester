@@ -498,6 +498,29 @@ class DatabaseManager {
     }));
   }
 
+  async getScenarioById(id) {
+    if (!id) return null;
+    try {
+      const { rows } = await this.pool.query('SELECT * FROM scenarios WHERE id = $1', [id]);
+      if (rows.length === 0) return null;
+      const r = rows[0];
+      return {
+        ...r,
+        projectId: r.project_id,
+        moduleId: r.module_id,
+        baseUrl: r.base_url,
+        authConfig: r.auth_config || {},
+        steps: r.steps || [],
+        tags: r.tags || [],
+        createdAt: r.created_at,
+        updatedAt: r.updated_at
+      };
+    } catch (e) {
+      console.warn('Error fetching scenario by id from DB:', e.message);
+      return null;
+    }
+  }
+
   async saveScenario(scenario) {
     const id = scenario.id || `sc-${Date.now()}`;
     const now = new Date();

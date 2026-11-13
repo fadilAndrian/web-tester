@@ -471,6 +471,7 @@ export default function App() {
           {viewMode === 'edit-scenario' && (
             <ScenarioEditor
               scenario={editingScenario}
+              allScenarios={scenarios}
               modules={modules}
               activeProjectId={activeProjectId || activeProject?.id}
               activeModuleId={activeModuleId}
