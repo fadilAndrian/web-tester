@@ -328,8 +328,30 @@ export default function ScenarioEditor({
         ? JSON.parse(JSON.stringify(scenario.authConfig.postLoginActions))
         : []
     },
-    steps: scenario?.steps
-      ? JSON.parse(JSON.stringify(scenario.steps))
+    steps: Array.isArray(scenario?.steps) && scenario.steps.length > 0
+      ? scenario.steps.map((s) => {
+          let primary = '';
+          let fallbacks = [];
+          if (s.target && typeof s.target === 'object') {
+            primary = s.target.primary || '';
+            if (Array.isArray(s.target.fallbacks)) fallbacks = s.target.fallbacks;
+          } else if (s.selector && typeof s.selector === 'object') {
+            primary = s.selector.primary || '';
+            if (Array.isArray(s.selector.fallbacks)) fallbacks = s.selector.fallbacks;
+          } else {
+            primary = typeof s.selector === 'string' ? s.selector : '';
+            if (Array.isArray(s.fallbacks)) {
+              fallbacks = s.fallbacks;
+            } else if (Array.isArray(s.fallbackSelectors)) {
+              fallbacks = s.fallbackSelectors;
+            }
+          }
+          return {
+            ...s,
+            selector: primary,
+            fallbacks: Array.isArray(fallbacks) ? fallbacks : []
+          };
+        })
       : [
           {
             id: `step-${Date.now()}`,
@@ -337,6 +359,7 @@ export default function ScenarioEditor({
             label: 'Buka Halaman Utama',
             target: '',
             selector: '',
+            fallbacks: [],
             value: '',
             timeout: 10000,
             enabled: true
@@ -345,7 +368,7 @@ export default function ScenarioEditor({
   });
 
   const [toast, setToast] = useState({ show: false, type: 'success', title: '', message: '' });
-  const [isHelperModalOpen, setIsHelperModalOpen] = useState(false);
+  const [helperModalTarget, setHelperModalTarget] = useState(null);
   const [copiedSnippet, setCopiedSnippet] = useState(null);
 
   const copySnippet = (text) => {
@@ -502,6 +525,7 @@ export default function ScenarioEditor({
       label: config.label.split('(')[0].trim(),
       target: actionType === 'navigate' ? formData.baseUrl : '',
       selector: '',
+      fallbacks: [],
       value: '',
       timeout: 10000,
       enabled: true
@@ -517,6 +541,106 @@ export default function ScenarioEditor({
       ...prev,
       steps: prev.steps.map((s) => (s.id === id ? { ...s, [field]: val } : s))
     }));
+  };
+
+  const addStepFallback = (stepId, fallbackVal = '') => {
+    setFormData((prev) => ({
+      ...prev,
+      steps: prev.steps.map((s) => {
+        if (s.id !== stepId) return s;
+        const currentFallbacks = Array.isArray(s.fallbacks) ? [...s.fallbacks] : [];
+        return {
+          ...s,
+          fallbacks: [...currentFallbacks, fallbackVal]
+        };
+      })
+    }));
+  };
+
+  const updateStepFallback = (stepId, fallbackIndex, val) => {
+    setFormData((prev) => ({
+      ...prev,
+      steps: prev.steps.map((s) => {
+        if (s.id !== stepId) return s;
+        const updated = Array.isArray(s.fallbacks) ? [...s.fallbacks] : [];
+        updated[fallbackIndex] = val;
+        return {
+          ...s,
+          fallbacks: updated
+        };
+      })
+    }));
+  };
+
+  const removeStepFallback = (stepId, fallbackIndex) => {
+    setFormData((prev) => ({
+      ...prev,
+      steps: prev.steps.map((s) => {
+        if (s.id !== stepId) return s;
+        const updated = (Array.isArray(s.fallbacks) ? s.fallbacks : []).filter((_, idx) => idx !== fallbackIndex);
+        return {
+          ...s,
+          fallbacks: updated
+        };
+      })
+    }));
+  };
+
+  const moveStepFallback = (stepId, fallbackIndex, direction) => {
+    setFormData((prev) => ({
+      ...prev,
+      steps: prev.steps.map((s) => {
+        if (s.id !== stepId) return s;
+        const list = Array.isArray(s.fallbacks) ? [...s.fallbacks] : [];
+        const targetIndex = fallbackIndex + direction;
+        if (targetIndex < 0 || targetIndex >= list.length) return s;
+        const temp = list[fallbackIndex];
+        list[fallbackIndex] = list[targetIndex];
+        list[targetIndex] = temp;
+        return {
+          ...s,
+          fallbacks: list
+        };
+      })
+    }));
+  };
+
+  const handleSelectPatternFromModal = (pattern) => {
+    if (!helperModalTarget) return;
+
+    if (helperModalTarget.type === 'step-primary') {
+      updateStep(helperModalTarget.stepId, 'selector', pattern);
+      setToast({
+        show: true,
+        type: 'success',
+        title: 'Selector Primer Terpilih',
+        message: `Selector "${pattern}" diterapkan sebagai selector utama.`
+      });
+    } else if (helperModalTarget.type === 'step-fallback') {
+      updateStepFallback(helperModalTarget.stepId, helperModalTarget.fallbackIndex, pattern);
+      setToast({
+        show: true,
+        type: 'success',
+        title: 'Selector Cadangan Terpilih',
+        message: `Selector "${pattern}" diterapkan pada cadangan #${helperModalTarget.fallbackIndex + 1}.`
+      });
+    } else if (helperModalTarget.type === 'step-new-fallback') {
+      addStepFallback(helperModalTarget.stepId, pattern);
+      setToast({
+        show: true,
+        type: 'success',
+        title: 'Selector Cadangan Ditambahkan',
+        message: `Selector "${pattern}" ditambahkan sebagai cadangan baru.`
+      });
+    } else {
+      copySnippet(pattern);
+      setToast({
+        show: true,
+        type: 'success',
+        title: 'Pola Disalin',
+        message: `Pola "${pattern}" disalin ke clipboard.`
+      });
+    }
   };
 
   const removeStep = (id) => {
@@ -547,11 +671,28 @@ export default function ScenarioEditor({
       return;
     }
 
+    const sanitizedSteps = (formData.steps || []).map((s) => {
+      const cleanFallbacks = Array.isArray(s.fallbacks)
+        ? s.fallbacks.map((f) => (typeof f === 'string' ? f.trim() : '')).filter(Boolean)
+        : [];
+      const cleanPrimary = typeof s.selector === 'string' ? s.selector.trim() : '';
+
+      return {
+        ...s,
+        selector: cleanPrimary,
+        fallbacks: cleanFallbacks,
+        target: s.action === 'navigate'
+          ? (s.target || formData.baseUrl || '')
+          : { primary: cleanPrimary, fallbacks: cleanFallbacks }
+      };
+    });
+
     const payload = {
       ...formData,
       id: formData.id || `sc-${Date.now()}`,
       projectId: formData.projectId || activeProjectId || 'proj-health-e-iris',
-      moduleId: formData.moduleId || null
+      moduleId: formData.moduleId || null,
+      steps: sanitizedSteps
     };
 
     try {
@@ -1355,7 +1496,7 @@ export default function ScenarioEditor({
             {/* The One Single Button to Open Full Dictionary */}
             <button
               type="button"
-              onClick={() => setIsHelperModalOpen(true)}
+              onClick={() => setHelperModalTarget({ type: 'general' })}
               className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center justify-center gap-1.5"
             >
               <BookOpen className="w-3.5 h-3.5" />
@@ -1525,21 +1666,51 @@ export default function ScenarioEditor({
                   )}
 
                   {config.needsSelector && (
-                    <div className="sm:col-span-1 lg:col-span-2">
-                      <label className="block text-[10px] uppercase font-semibold text-gray-500 dark:text-zinc-400 mb-1">
-                        Selector Elemen Target
-                      </label>
+                    <div className="sm:col-span-1 lg:col-span-2 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-[10px] uppercase font-semibold text-gray-500 dark:text-zinc-400 flex items-center gap-1.5">
+                          <span>Selector Utama (Primary)</span>
+                          {Array.isArray(step.fallbacks) && step.fallbacks.length > 0 && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                              <Sparkles className="w-2.5 h-2.5" />
+                              +{step.fallbacks.length} Fallback
+                            </span>
+                          )}
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setHelperModalTarget({ type: 'step-primary', stepId: step.id })}
+                            className="text-[10px] font-medium text-amber-600 dark:text-amber-400 hover:text-amber-700 hover:underline flex items-center gap-1"
+                            title="Buka Kamus Selector untuk selector utama"
+                          >
+                            <BookOpen className="w-3 h-3" />
+                            <span>Kamus</span>
+                          </button>
+                          <span className="text-gray-300 dark:text-zinc-700">|</span>
+                          <button
+                            type="button"
+                            onClick={() => addStepFallback(step.id, '')}
+                            className="text-[10px] font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:underline flex items-center gap-1"
+                            title="Tambah alternatif selector cadangan"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>+ Fallback</span>
+                          </button>
+                        </div>
+                      </div>
+
                       <input
                         type="text"
                         placeholder={config.selectorPlaceholder}
-                        value={step.selector}
+                        value={step.selector || ''}
                         onChange={(e) => updateStep(step.id, 'selector', e.target.value)}
                         className="w-full bg-white dark:bg-zinc-900 border border-gray-300 dark:border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-mono text-[11px]"
                       />
 
                       {/* Clickable Recommended Presets */}
                       {QUICK_SELECTOR_PRESETS[step.action] && (
-                        <div className="flex items-center gap-1 flex-wrap mt-1.5">
+                        <div className="flex items-center gap-1 flex-wrap pt-0.5">
                           <span className="text-[10px] text-gray-400 dark:text-zinc-500">Rekomendasi:</span>
                           {QUICK_SELECTOR_PRESETS[step.action].map((preset, pIdx) => (
                             <button
@@ -1552,6 +1723,90 @@ export default function ScenarioEditor({
                               {preset.label}
                             </button>
                           ))}
+                        </div>
+                      )}
+
+                      {/* Adaptive Fallback Selectors Chain */}
+                      {Array.isArray(step.fallbacks) && step.fallbacks.length > 0 && (
+                        <div className="mt-2.5 p-2.5 bg-gray-50/80 dark:bg-zinc-950/60 border border-dashed border-gray-300 dark:border-zinc-800 rounded-lg space-y-2">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="font-semibold text-gray-700 dark:text-zinc-300 flex items-center gap-1.5">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                              Selector Cadangan (Adaptive Fallback Chain)
+                            </span>
+                            <span className="text-[10px] text-gray-400 dark:text-zinc-500">
+                              Failover 1.5 detik
+                            </span>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            {step.fallbacks.map((fallbackVal, fIdx) => (
+                              <div key={fIdx} className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-mono px-1.5 py-1 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200/60 dark:border-amber-500/20 shrink-0">
+                                  #{fIdx + 1}
+                                </span>
+                                <input
+                                  type="text"
+                                  placeholder={`Selector cadangan ke-${fIdx + 1} (misal: button:has-text("Kirim"))`}
+                                  value={fallbackVal}
+                                  onChange={(e) => updateStepFallback(step.id, fIdx, e.target.value)}
+                                  className="flex-1 bg-white dark:bg-zinc-900 border border-gray-300 dark:border-zinc-700 rounded-md px-2 py-1 text-[11px] font-mono text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setHelperModalTarget({ type: 'step-fallback', stepId: step.id, fallbackIndex: fIdx })}
+                                  className="p-1 rounded text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-gray-200 dark:hover:bg-zinc-800 transition-colors"
+                                  title="Pilih dari Kamus"
+                                >
+                                  <BookOpen className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveStepFallback(step.id, fIdx, -1)}
+                                  disabled={fIdx === 0}
+                                  className={`p-1 rounded transition-colors ${
+                                    fIdx === 0 ? 'text-gray-300 dark:text-zinc-800 cursor-not-allowed' : 'text-gray-400 hover:text-gray-700 dark:hover:text-zinc-200 hover:bg-gray-200 dark:hover:bg-zinc-800'
+                                  }`}
+                                  title="Naikkan prioritas"
+                                >
+                                  <ChevronUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveStepFallback(step.id, fIdx, 1)}
+                                  disabled={fIdx === step.fallbacks.length - 1}
+                                  className={`p-1 rounded transition-colors ${
+                                    fIdx === step.fallbacks.length - 1 ? 'text-gray-300 dark:text-zinc-800 cursor-not-allowed' : 'text-gray-400 hover:text-gray-700 dark:hover:text-zinc-200 hover:bg-gray-200 dark:hover:bg-zinc-800'
+                                  }`}
+                                  title="Turunkan prioritas"
+                                >
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeStepFallback(step.id, fIdx)}
+                                  className="p-1 rounded text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors"
+                                  title="Hapus cadangan"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 text-[10px]">
+                            <button
+                              type="button"
+                              onClick={() => addStepFallback(step.id, '')}
+                              className="text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 font-medium"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>Tambah Cadangan Lain</span>
+                            </button>
+                            <span className="text-gray-400 dark:text-zinc-500 italic">
+                              Otomatis dicoba jika selector primer timeout
+                            </span>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1595,10 +1850,11 @@ export default function ScenarioEditor({
         </div>
       </div>
 
-      {/* Kamus Selector Modal */}
+      {/* Kamus Selector Modal with Adaptive Pattern Selection */}
       <SelectorHelperModal
-        isOpen={isHelperModalOpen}
-        onClose={() => setIsHelperModalOpen(false)}
+        isOpen={Boolean(helperModalTarget)}
+        onClose={() => setHelperModalTarget(null)}
+        onSelectPattern={handleSelectPatternFromModal}
       />
 
       {/* Filament Notification Toast */}

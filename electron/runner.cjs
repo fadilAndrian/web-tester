@@ -15,6 +15,68 @@ function normalizeSelector(selector) {
   return s;
 }
 
+// Parse step or input into structured primary selector and fallback selectors
+function parseAdaptiveSelectors(input) {
+  if (!input) return { primary: '', fallbacks: [], all: [] };
+
+  let primary = '';
+  let fallbacks = [];
+
+  if (typeof input === 'string') {
+    primary = input.trim();
+  } else if (typeof input === 'object') {
+    // If target is an object with primary and fallbacks
+    if (input.target && typeof input.target === 'object') {
+      primary = input.target.primary || '';
+      if (Array.isArray(input.target.fallbacks)) {
+        fallbacks = input.target.fallbacks;
+      }
+    } else if (input.selector && typeof input.selector === 'object') {
+      primary = input.selector.primary || '';
+      if (Array.isArray(input.selector.fallbacks)) {
+        fallbacks = input.selector.fallbacks;
+      }
+    } else {
+      if (typeof input.selector === 'string') {
+        primary = input.selector;
+      } else if (typeof input.primary === 'string') {
+        primary = input.primary;
+      }
+      if (Array.isArray(input.fallbacks)) {
+        fallbacks = input.fallbacks;
+      } else if (Array.isArray(input.fallbackSelectors)) {
+        fallbacks = input.fallbackSelectors;
+      } else if (typeof input.fallbacks === 'string') {
+        fallbacks = input.fallbacks.split('\n');
+      }
+    }
+  }
+
+  const cleanPrimary = typeof primary === 'string' ? primary.trim() : '';
+  const cleanFallbacks = (Array.isArray(fallbacks) ? fallbacks : [])
+    .map((s) => (typeof s === 'string' ? s.trim() : ''))
+    .filter((s) => s && s !== cleanPrimary);
+
+  const seen = new Set();
+  const all = [];
+  if (cleanPrimary) {
+    all.push(cleanPrimary);
+    seen.add(cleanPrimary);
+  }
+  for (const f of cleanFallbacks) {
+    if (!seen.has(f)) {
+      all.push(f);
+      seen.add(f);
+    }
+  }
+
+  return {
+    primary: cleanPrimary,
+    fallbacks: cleanFallbacks,
+    all
+  };
+}
+
 // Helper to smartly target visible elements when multiple match (e.g. Livewire/Alpine mobile+desktop buttons)
 async function getSmartLocator(page, rawSelector) {
   const selector = normalizeSelector(rawSelector);
@@ -44,38 +106,112 @@ async function getSmartLocator(page, rawSelector) {
   return loc.first();
 }
 
-// Resilient click helper that handles Livewire/Alpine DOM-morphing, temporary disabled state, and hidden duplicates
-async function clickElementSmartly(page, selector, timeout = 15000) {
-  await page.waitForTimeout(300);
+// Adaptive Multi-Selector Locator with automatic failover (probe timeout ~1.5s per candidate)
+async function findAdaptiveLocator(page, selectorSpec, timeout = 10000, options = {}) {
+  const { primary, fallbacks, all } = parseAdaptiveSelectors(selectorSpec);
+  if (all.length === 0) {
+    throw new Error('Selector elemen tidak boleh kosong');
+  }
+
+  // Fast path: single selector without fallbacks
+  if (all.length === 1) {
+    const loc = await getSmartLocator(page, all[0]);
+    await loc.waitFor({ state: options.state || 'visible', timeout });
+    return {
+      locator: loc,
+      matchedSelector: all[0],
+      isFallback: false,
+      fallbackIndex: null,
+      primary
+    };
+  }
+
+  // Multi-selector adaptive fallback failover loop
+  const startTime = Date.now();
+  const probeTimeout = options.probeTimeout || 1500;
+  let lastErr = null;
+
+  while (Date.now() - startTime < timeout) {
+    for (let i = 0; i < all.length; i++) {
+      const currentSelector = all[i];
+      const remainingTime = timeout - (Date.now() - startTime);
+      if (remainingTime <= 0) break;
+
+      const currentWait = Math.min(probeTimeout, remainingTime);
+      try {
+        const loc = await getSmartLocator(page, currentSelector);
+        await loc.waitFor({ state: options.state || 'visible', timeout: currentWait });
+
+        const isFallback = i > 0;
+        return {
+          locator: loc,
+          matchedSelector: currentSelector,
+          isFallback,
+          fallbackIndex: isFallback ? i - 1 : null,
+          primary
+        };
+      } catch (err) {
+        lastErr = err;
+        // Proceed to next fallback candidate
+      }
+    }
+
+    if (Date.now() - startTime < timeout) {
+      await page.waitForTimeout(150);
+    }
+  }
+
+  const fallbackMsg = fallbacks.length > 0 ? ` dan ${fallbacks.length} selector cadangan [${fallbacks.join(', ')}]` : '';
+  const err = new Error(`Elemen tidak ditemukan setelah mencoba selector primer "${primary}"${fallbackMsg} (Timeout ${timeout}ms)`);
+  if (lastErr) err.originalError = lastErr;
+  throw err;
+}
+
+// Resilient click helper that handles Livewire/Alpine DOM-morphing, temporary disabled state, and Adaptive Multi-Selectors
+async function clickElementSmartly(page, selectorSpec, timeout = 15000, onFallbackMatched = null) {
+  await page.waitForTimeout(250);
   const startTime = Date.now();
   let lastErr = null;
 
   while (Date.now() - startTime < timeout) {
+    const remainingTime = timeout - (Date.now() - startTime);
+    if (remainingTime <= 0) break;
+
     try {
-      const loc = await getSmartLocator(page, selector);
-      await loc.waitFor({ state: 'visible', timeout: 3000 });
+      const { locator, matchedSelector, isFallback, primary } = await findAdaptiveLocator(
+        page,
+        selectorSpec,
+        remainingTime,
+        { state: 'visible', probeTimeout: 1500 }
+      );
 
       // If button has wire:loading or disabled attribute, give Livewire a moment to complete
-      const isDisabled = await loc.getAttribute('disabled').catch(() => null);
+      const isDisabled = await locator.getAttribute('disabled').catch(() => null);
       if (isDisabled !== null && isDisabled !== 'false') {
-        await page.waitForTimeout(400);
+        await page.waitForTimeout(300);
         continue;
       }
 
-      await loc.click({ timeout: 5000 });
-      return;
+      await locator.click({ timeout: Math.min(5000, remainingTime) });
+
+      if (isFallback && typeof onFallbackMatched === 'function') {
+        onFallbackMatched({ matchedSelector, primary });
+      }
+
+      return { matchedSelector, isFallback, primary };
     } catch (err) {
       lastErr = err;
       if (
         err.message.includes('detached') ||
         err.message.includes('not visible') ||
-        err.message.includes('element is not enabled') ||
-        err.message.includes('Timeout')
+        err.message.includes('element is not enabled')
       ) {
-        await page.waitForTimeout(400);
+        await page.waitForTimeout(300);
         continue;
       }
-      throw err;
+      if (Date.now() - startTime >= timeout) {
+        throw err;
+      }
     }
   }
 
@@ -302,8 +438,14 @@ class TestRunner {
                     switch (postAct.action) {
                       case 'type': {
                         if (!postAct.selector) break;
-                        const t = await getSmartLocator(page, postAct.selector);
-                        await t.waitFor({ state: 'visible', timeout: to });
+                        const tRes = await findAdaptiveLocator(page, postAct, to);
+                        const t = tRes.locator;
+                        if (tRes.isFallback) {
+                          emit('log', {
+                            level: 'warn',
+                            message: `⚡ Auth Fallback [${pIdx + 1}]: Elemen input ditemukan via cadangan "${tRes.matchedSelector}" (Primer: "${tRes.primary}")`
+                          });
+                        }
                         if (postAct.value && postAct.value.includes('{Enter}')) {
                           const clean = postAct.value.replace(/{Enter}/g, '');
                           await t.fill(clean);
@@ -315,34 +457,42 @@ class TestRunner {
                       }
                       case 'click': {
                         if (!postAct.selector) break;
-                        await clickElementSmartly(page, postAct.selector, to);
+                        await clickElementSmartly(page, postAct, to, ({ matchedSelector, primary }) => {
+                          emit('log', {
+                            level: 'warn',
+                            message: `⚡ Auth Fallback [${pIdx + 1}]: Tombol diklik via cadangan "${matchedSelector}" (Primer: "${primary}")`
+                          });
+                        });
                         break;
                       }
                       case 'select': {
                         if (!postAct.selector) break;
-                        const t = await getSmartLocator(page, postAct.selector);
-                        await t.waitFor({ state: 'visible', timeout: to });
-                        await t.selectOption(postAct.value || '');
+                        const tRes = await findAdaptiveLocator(page, postAct, to);
+                        if (tRes.isFallback) {
+                          emit('log', {
+                            level: 'warn',
+                            message: `⚡ Auth Fallback [${pIdx + 1}]: Dropdown ditemukan via cadangan "${tRes.matchedSelector}" (Primer: "${tRes.primary}")`
+                          });
+                        }
+                        await tRes.locator.selectOption(postAct.value || '');
                         break;
                       }
                       case 'check': {
                         if (!postAct.selector) break;
-                        const t = await getSmartLocator(page, postAct.selector);
-                        await t.waitFor({ state: 'visible', timeout: to });
-                        await t.check({ timeout: to });
+                        const tRes = await findAdaptiveLocator(page, postAct, to);
+                        await tRes.locator.check({ timeout: to });
                         break;
                       }
                       case 'uncheck': {
                         if (!postAct.selector) break;
-                        const t = await getSmartLocator(page, postAct.selector);
-                        await t.waitFor({ state: 'visible', timeout: to });
-                        await t.uncheck({ timeout: to });
+                        const tRes = await findAdaptiveLocator(page, postAct, to);
+                        await tRes.locator.uncheck({ timeout: to });
                         break;
                       }
                       case 'wait': {
-                        if (postAct.selector && postAct.selector.trim()) {
-                          const t = await getSmartLocator(page, postAct.selector.trim());
-                          await t.waitFor({ state: 'visible', timeout: to });
+                        const selSpec = parseAdaptiveSelectors(postAct);
+                        if (selSpec.all.length > 0) {
+                          await findAdaptiveLocator(page, postAct, to);
                         }
                         if (postAct.value) {
                           const ms = parseInt(postAct.value, 10);
@@ -362,15 +512,13 @@ class TestRunner {
                       }
                       case 'assert_visible': {
                         if (!postAct.selector) break;
-                        const t = await getSmartLocator(page, postAct.selector);
-                        await t.waitFor({ state: 'visible', timeout: to });
+                        await findAdaptiveLocator(page, postAct, to);
                         break;
                       }
                       case 'assert_text': {
                         if (!postAct.selector) break;
-                        const t = await getSmartLocator(page, postAct.selector);
-                        await t.waitFor({ state: 'visible', timeout: to });
-                        const txt = await t.innerText();
+                        const tRes = await findAdaptiveLocator(page, postAct, to);
+                        const txt = await tRes.locator.innerText();
                         if (!txt.toLowerCase().includes((postAct.value || '').toLowerCase())) {
                           throw new Error(`Teks pasca-login tidak cocok. Harap memuat: "${postAct.value}", ditemukan: "${txt.trim()}"`);
                         }
@@ -478,6 +626,8 @@ class TestRunner {
           let stepSuccess = false;
           let stepError = null;
           let screenshotFile = null;
+          let matchedSelector = null;
+          let isFallbackUsed = false;
 
           try {
             const timeout = Number(step.timeout) || 15000;
@@ -491,10 +641,17 @@ class TestRunner {
               }
 
               case 'type': {
-                if (!step.selector) throw new Error('Selector input harus diisi');
-                const target = await getSmartLocator(page, step.selector);
-                await target.waitFor({ state: 'visible', timeout });
-                
+                const targetRes = await findAdaptiveLocator(page, step, timeout);
+                const target = targetRes.locator;
+                matchedSelector = targetRes.matchedSelector;
+                if (targetRes.isFallback) {
+                  isFallbackUsed = true;
+                  emit('log', {
+                    level: 'warn',
+                    message: `⚡ Adaptive Fallback: Elemen input "${step.label || 'type'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
+                  });
+                }
+
                 // If contains {Enter}, type and submit
                 if (step.value && step.value.includes('{Enter}')) {
                   const cleanText = step.value.replace(/{Enter}/g, '');
@@ -507,31 +664,61 @@ class TestRunner {
               }
 
               case 'click': {
-                if (!step.selector) throw new Error('Selector tombol/elemen harus diisi');
-                await clickElementSmartly(page, step.selector, timeout);
+                const clickRes = await clickElementSmartly(page, step, timeout, ({ matchedSelector: mSel, primary: pSel }) => {
+                  isFallbackUsed = true;
+                  matchedSelector = mSel;
+                  emit('log', {
+                    level: 'warn',
+                    message: `⚡ Adaptive Fallback: Tombol "${step.label || 'click'}" diklik via cadangan "${mSel}" (Primer: "${pSel}")`
+                  });
+                });
+                if (clickRes) {
+                  matchedSelector = clickRes.matchedSelector;
+                  if (clickRes.isFallback) isFallbackUsed = true;
+                }
                 break;
               }
 
               case 'select': {
-                if (!step.selector) throw new Error('Selector dropdown harus diisi');
-                const target = await getSmartLocator(page, step.selector);
-                await target.waitFor({ state: 'visible', timeout });
-                await target.selectOption(step.value);
+                const targetRes = await findAdaptiveLocator(page, step, timeout);
+                matchedSelector = targetRes.matchedSelector;
+                if (targetRes.isFallback) {
+                  isFallbackUsed = true;
+                  emit('log', {
+                    level: 'warn',
+                    message: `⚡ Adaptive Fallback: Dropdown "${step.label || 'select'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
+                  });
+                }
+                await targetRes.locator.selectOption(step.value);
                 break;
               }
 
               case 'check': {
-                if (!step.selector) throw new Error('Selector checkbox harus diisi');
-                const target = await getSmartLocator(page, step.selector);
-                await target.waitFor({ state: 'visible', timeout });
-                await target.check({ timeout });
+                const targetRes = await findAdaptiveLocator(page, step, timeout);
+                matchedSelector = targetRes.matchedSelector;
+                if (targetRes.isFallback) {
+                  isFallbackUsed = true;
+                  emit('log', {
+                    level: 'warn',
+                    message: `⚡ Adaptive Fallback: Checkbox "${step.label || 'check'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
+                  });
+                }
+                await targetRes.locator.check({ timeout });
                 break;
               }
 
               case 'wait': {
-                if (step.selector && step.selector.trim()) {
-                  const target = await getSmartLocator(page, step.selector.trim());
-                  await target.waitFor({ state: 'visible', timeout });
+                const selSpec = parseAdaptiveSelectors(step);
+                if (selSpec.all.length > 0) {
+                  const targetRes = await findAdaptiveLocator(page, step, timeout);
+                  matchedSelector = targetRes.matchedSelector;
+                  if (targetRes.isFallback) {
+                    isFallbackUsed = true;
+                    emit('log', {
+                      level: 'warn',
+                      message: `⚡ Adaptive Fallback: Elemen tunggu "${step.label || 'wait'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
+                    });
+                  }
                 }
                 if (step.value) {
                   const ms = parseInt(step.value, 10);
@@ -543,17 +730,29 @@ class TestRunner {
               }
 
               case 'assert_visible': {
-                if (!step.selector) throw new Error('Selector elemen harus diisi');
-                const target = await getSmartLocator(page, step.selector);
-                await target.waitFor({ state: 'visible', timeout });
+                const targetRes = await findAdaptiveLocator(page, step, timeout);
+                matchedSelector = targetRes.matchedSelector;
+                if (targetRes.isFallback) {
+                  isFallbackUsed = true;
+                  emit('log', {
+                    level: 'warn',
+                    message: `⚡ Adaptive Fallback: Elemen assert_visible "${step.label || 'assert_visible'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
+                  });
+                }
                 break;
               }
 
               case 'assert_text': {
-                if (!step.selector) throw new Error('Selector elemen harus diisi');
-                const target = await getSmartLocator(page, step.selector);
-                await target.waitFor({ state: 'visible', timeout });
-                const actualText = await target.innerText();
+                const targetRes = await findAdaptiveLocator(page, step, timeout);
+                matchedSelector = targetRes.matchedSelector;
+                if (targetRes.isFallback) {
+                  isFallbackUsed = true;
+                  emit('log', {
+                    level: 'warn',
+                    message: `⚡ Adaptive Fallback: Elemen assert_text "${step.label || 'assert_text'}" ditemukan via cadangan "${targetRes.matchedSelector}" (Primer: "${targetRes.primary}")`
+                  });
+                }
+                const actualText = await targetRes.locator.innerText();
                 const expectedText = step.value || '';
                 if (!actualText || !actualText.toLowerCase().includes(expectedText.toLowerCase())) {
                   throw new Error(`Teks tidak cocok. Diharapkan mengandung: "${expectedText}", tetapi menemukan: "${actualText ? actualText.trim() : ''}"`);
@@ -608,7 +807,9 @@ class TestRunner {
             status: stepSuccess ? 'passed' : 'failed',
             durationMs: stepDuration,
             error: stepError,
-            screenshot: screenshotFile
+            screenshot: screenshotFile,
+            isFallback: isFallbackUsed,
+            matchedSelector: matchedSelector
           };
 
           scenarioResult.steps.push(stepResultItem);
@@ -618,7 +819,9 @@ class TestRunner {
               scenarioId: scenario.id,
               stepId: step.id,
               durationMs: stepDuration,
-              screenshot: screenshotFile
+              screenshot: screenshotFile,
+              isFallback: isFallbackUsed,
+              matchedSelector: matchedSelector
             });
           } else {
             emit('step-fail', {

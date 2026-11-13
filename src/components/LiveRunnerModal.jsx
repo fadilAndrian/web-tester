@@ -111,15 +111,19 @@ export default function LiveRunnerModal({
               ...prev[data.stepId],
               status: 'passed',
               duration: data.durationMs,
-              screenshot: data.screenshot
+              screenshot: data.screenshot,
+              isFallback: data.isFallback,
+              matchedSelector: data.matchedSelector
             }
           }));
           setLogs((prev) => [
             ...prev,
             {
               time: timeStr,
-              type: 'success',
-              text: `  ✅ Berhasil (${data.durationMs}ms)${data.screenshot ? ` [📸 ${data.screenshot}]` : ''}`
+              type: data.isFallback ? 'warn' : 'success',
+              text: data.isFallback
+                ? `  ⚡ Berhasil via Fallback: [${data.matchedSelector}] (${data.durationMs}ms)${data.screenshot ? ` [📸 ${data.screenshot}]` : ''}`
+                : `  ✅ Berhasil (${data.durationMs}ms)${data.screenshot ? ` [📸 ${data.screenshot}]` : ''}`
             }
           ]);
           break;
@@ -445,6 +449,15 @@ export default function LiveRunnerModal({
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0">
+                              {statusObj?.isFallback && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-semibold"
+                                  title={`Elemen ditemukan via fallback: ${statusObj.matchedSelector}`}
+                                >
+                                  <Sparkles className="w-2.5 h-2.5 text-amber-500" />
+                                  Fallback
+                                </span>
+                              )}
                               {statusObj?.duration && (
                                 <span className="text-[10px] text-gray-400 dark:text-zinc-500">{statusObj.duration}ms</span>
                               )}

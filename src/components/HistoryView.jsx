@@ -9,7 +9,8 @@ import {
   Camera,
   AlertTriangle,
   Flame,
-  Globe
+  Globe,
+  Sparkles
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -194,6 +195,15 @@ export default function HistoryView({ activeProjectId, onViewScreenshot }) {
                                             <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400 uppercase">
                                               {st.action}
                                             </span>
+                                            {st.isFallback && (
+                                              <span
+                                                className="inline-flex items-center gap-0.5 text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-medium"
+                                                title={`Ditemukan via fallback: ${st.matchedSelector}`}
+                                              >
+                                                <Sparkles className="w-2.5 h-2.5 text-amber-500" />
+                                                Fallback: {st.matchedSelector}
+                                              </span>
+                                            )}
                                           </div>
                                         </div>
                                       </div>
