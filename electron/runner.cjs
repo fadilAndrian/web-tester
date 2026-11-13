@@ -135,8 +135,26 @@ class TestRunner {
     emit('run-start', {
       totalScenarios: scenarios.length,
       headless: effectiveHeadless,
-      slowMo
+      slowMo,
+      isRemoteRequest: Boolean(options.isRemoteRequest),
+      serverPlatform: process.platform
     });
+
+    const runnerModeDesc = effectiveHeadless
+      ? 'Background Runner (Headless)'
+      : `Chrome Terlihat (Headed GUI pada Server Host [${process.platform}])`;
+
+    emit('log', {
+      level: 'info',
+      message: `🖥️ Inisialisasi Browser: ${runnerModeDesc} | Delay: ${slowMo}ms`
+    });
+
+    if (!effectiveHeadless && options.isRemoteRequest) {
+      emit('log', {
+        level: 'warn',
+        message: `ℹ️ Info: Request pengujian berasal dari Web Client remote (${options.clientIp || 'client'}). Jendela Chrome dibuka di monitor server host.`
+      });
+    }
 
     let browser = null;
     let sharedContext = null;
