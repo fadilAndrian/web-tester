@@ -29,9 +29,11 @@ import {
   Copy,
   ShieldAlert,
   Boxes,
-  Workflow
+  Workflow,
+  Radio
 } from 'lucide-react';
 import SelectorHelperModal from './SelectorHelperModal';
+import VisualRecorderModal from './VisualRecorderModal';
 import Toast from './Toast';
 
 const QUICK_SELECTOR_PRESETS = {
@@ -389,7 +391,24 @@ export default function ScenarioEditor({
   const availableSubScenarios = (allScenarios || []).filter((s) => s.id !== formData.id);
   const [toast, setToast] = useState({ show: false, type: 'success', title: '', message: '' });
   const [helperModalTarget, setHelperModalTarget] = useState(null);
+  const [isRecorderOpen, setIsRecorderOpen] = useState(false);
   const [copiedSnippet, setCopiedSnippet] = useState(null);
+
+  const handleImportRecordedSteps = (recordedSteps, replaceExisting = false) => {
+    if (!Array.isArray(recordedSteps) || recordedSteps.length === 0) return;
+
+    setFormData((prev) => ({
+      ...prev,
+      steps: replaceExisting ? [...recordedSteps] : [...prev.steps, ...recordedSteps]
+    }));
+
+    setToast({
+      show: true,
+      type: 'success',
+      title: 'Langkah Berhasil Diimpor',
+      message: `${recordedSteps.length} langkah hasil rekaman visual berhasil ditambahkan.`
+    });
+  };
 
   const copySnippet = (text) => {
     navigator.clipboard.writeText(text);
@@ -1590,8 +1609,18 @@ export default function ScenarioEditor({
             </p>
           </div>
 
-          {/* Action Types Add Bar */}
+          {/* Action Types Add Bar & Visual Recorder */}
           <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setIsRecorderOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-xs transition-colors cursor-pointer mr-1"
+              title="Buka browser visual untuk merekam langkah tes"
+            >
+              <Radio className="w-3.5 h-3.5 animate-pulse" />
+              <span>Rekam Interaksi Web</span>
+            </button>
+
             <span className="text-[11px] text-gray-400 dark:text-zinc-500 mr-1">Tambah:</span>
             <button
               type="button"
@@ -1613,6 +1642,13 @@ export default function ScenarioEditor({
               className="px-2.5 py-1 text-[11px] font-medium bg-teal-50 dark:bg-teal-500/10 text-teal-700 dark:text-teal-400 border border-teal-200 dark:border-teal-500/20 rounded-md hover:bg-teal-100 dark:hover:bg-teal-500/20 transition-colors"
             >
               + Cek Teks
+            </button>
+            <button
+              type="button"
+              onClick={() => addStep('sub_scenario')}
+              className="px-2.5 py-1 text-[11px] font-medium bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-500/20 rounded-md hover:bg-violet-100 dark:hover:bg-violet-500/20 transition-colors"
+            >
+              + Sub-Flow
             </button>
             <button
               type="button"
@@ -1981,7 +2017,7 @@ export default function ScenarioEditor({
         </div>
 
         {/* Add Step Buttons */}
-        <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
           <button
             type="button"
             onClick={() => addStep('type')}
@@ -1997,10 +2033,27 @@ export default function ScenarioEditor({
             className="py-2.5 border-2 border-dashed border-violet-300 dark:border-violet-800/80 hover:border-violet-500 rounded-xl text-violet-700 dark:text-violet-400 hover:bg-violet-500/5 text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
           >
             <Boxes className="w-4 h-4" />
-            <span>Sisipkan Sub-Flow / Komponen</span>
+            <span>Sisipkan Sub-Flow</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsRecorderOpen(true)}
+            className="py-2.5 border-2 border-dashed border-rose-300 dark:border-rose-800/80 hover:border-rose-500 rounded-xl text-rose-700 dark:text-rose-400 hover:bg-rose-500/5 text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+          >
+            <Radio className="w-4 h-4 animate-pulse text-rose-500" />
+            <span>Rekam via Browser Visual</span>
           </button>
         </div>
       </div>
+
+      {/* Visual Web Recorder Modal */}
+      <VisualRecorderModal
+        isOpen={isRecorderOpen}
+        onClose={() => setIsRecorderOpen(false)}
+        initialUrl={formData.baseUrl}
+        onImportSteps={handleImportRecordedSteps}
+      />
 
       {/* Kamus Selector Modal with Adaptive Pattern Selection */}
       <SelectorHelperModal

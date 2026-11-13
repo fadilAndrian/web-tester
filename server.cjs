@@ -6,6 +6,7 @@ const db = require('./electron/db.cjs');
 const runner = require('./electron/runner.cjs');
 const storage = require('./electron/storage.cjs');
 const auth = require('./electron/auth.cjs');
+const recorder = require('./electron/recorder.cjs');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -483,6 +484,42 @@ app.post('/api/stop-test', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Visual Web Recorder Endpoints
+app.post('/api/recorder/start', async (req, res) => {
+  try {
+    const { url = '', options = {} } = req.body;
+    const startRes = await recorder.startRecording({
+      url,
+      options,
+      onStep: (step, isUpdate) => {
+        broadcastTestEvent('recorder-step', { step, isUpdate });
+      },
+      onEvent: (type, data) => {
+        broadcastTestEvent(type, data);
+      }
+    });
+    res.json(startRes);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/recorder/stop', async (req, res) => {
+  try {
+    const stopRes = await recorder.stopRecording();
+    res.json(stopRes);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/recorder/status', (req, res) => {
+  res.json({
+    isRecording: recorder.getIsRecording(),
+    steps: recorder.getRecordedSteps()
+  });
 });
 
 // Screenshots

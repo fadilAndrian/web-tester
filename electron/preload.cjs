@@ -45,6 +45,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateUser: (id, data, token) => ipcRenderer.invoke('update-user', id, data, token),
   deleteUser: (id, token) => ipcRenderer.invoke('delete-user', id, token),
 
+  // Visual Web Recorder
+  startRecorder: (payload) => ipcRenderer.invoke('start-recorder', payload),
+  stopRecorder: () => ipcRenderer.invoke('stop-recorder'),
+  getRecorderStatus: () => ipcRenderer.invoke('get-recorder-status'),
+  onRecorderStep: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('recorder-step', handler);
+    return () => ipcRenderer.removeListener('recorder-step', handler);
+  },
+
   // Live Event listeners
   onTestEvent: (callback) => {
     const handler = (event, { type, data }) => callback(type, data);

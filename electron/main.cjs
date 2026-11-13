@@ -4,6 +4,7 @@ const fs = require('fs');
 const storage = require('./storage.cjs');
 const db = require('./db.cjs');
 const runner = require('./runner.cjs');
+const recorder = require('./recorder.cjs');
 const auth = require('./auth.cjs');
 
 let mainWindow = null;
@@ -172,6 +173,36 @@ ipcMain.handle('run-test', async (_, payload) => {
 ipcMain.handle('stop-test', async () => {
   runner.abort();
   return { success: true };
+});
+
+// Visual Web Recorder IPC Handlers
+ipcMain.handle('start-recorder', async (_, payload = {}) => {
+  const { url, options = {} } = payload;
+  return recorder.startRecording({
+    url,
+    options,
+    onStep: (step, isUpdate) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('recorder-step', { step, isUpdate });
+      }
+    },
+    onEvent: (type, data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('test-event', { type, data });
+      }
+    }
+  });
+});
+
+ipcMain.handle('stop-recorder', async () => {
+  return recorder.stopRecording();
+});
+
+ipcMain.handle('get-recorder-status', () => {
+  return {
+    isRecording: recorder.getIsRecording(),
+    steps: recorder.getRecordedSteps()
+  };
 });
 
 ipcMain.handle('get-screenshot-data', async (_, filename) => {
